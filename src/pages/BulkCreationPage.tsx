@@ -35,10 +35,10 @@ const CTA_OPTIONS = [
 ];
 const STEPS = ["Criativos", "Conjuntos", "Campanhas", "Revisão", "Enviado"];
 
-interface AdAccount { id: string; account_id: string; account_name: string; }
+interface AdAccount { id: string; account_id: string; account_name: string; business_manager_id: string | null; }
 interface Pixel { id: string; name: string; pixel_id: string; }
-interface AdPage { id: string; page_id: string; name: string; }
-interface InstagramAccount { id: string; instagram_actor_id: string; name: string; }
+interface AdPage { id: string; page_id: string; name: string; business_manager_id: string | null; }
+interface InstagramAccount { id: string; instagram_actor_id: string; name: string; business_manager_id: string | null; }
 interface Website { id: string; name: string; url: string; }
 interface DriveFile { name: string; id: string; mimeType: string; thumbnailLink: string | null; size: string | null; }
 interface SelectedFile { driveFileId: string; fileName: string; adName: string; adSetQty: number; }
@@ -70,10 +70,21 @@ export default function BulkCreationPage() {
 
     // ── Shared ad config ──
     const [adConfig, setAdConfig] = useState({
-        ad_page_id: "", instagram_account_id: "",
         headline: "", call_to_action: "SHOP_NOW", website_id: "",
         utm_params: "", enable_multi_advertiser: false,
     });
+
+    // ── Per-account page mapping ──
+    const [accountPageMap, setAccountPageMap] = useState<
+        Record<string, { ad_page_id: string; instagram_account_id: string }>
+    >({});
+
+    const updateAccountPage = (accountId: string, field: string, value: string) => {
+        setAccountPageMap((prev) => ({
+            ...prev,
+            [accountId]: { ...prev[accountId], [field]: value },
+        }));
+    };
 
     // ── Campaigns: existing + new ──
     const [selectedCampaignIds, setSelectedCampaignIds] = useState<string[]>([]);
@@ -97,7 +108,7 @@ export default function BulkCreationPage() {
     // ── Queries ──
     const { data: adAccounts } = useQuery({
         queryKey: ["ad_accounts"], queryFn: async () => {
-            const { data, error } = await supabase.from("ad_accounts").select("id, account_id, account_name").eq("status", "active");
+            const { data, error } = await supabase.from("ad_accounts").select("id, account_id, account_name, business_manager_id").eq("status", "active");
             if (error) throw error; return data as AdAccount[];
         },
     });
@@ -108,8 +119,8 @@ export default function BulkCreationPage() {
         },
     });
     const { data: pixels } = useQuery({ queryKey: ["pixels"], queryFn: async () => { const { data, error } = await supabase.from("pixels").select("id, name, pixel_id"); if (error) throw error; return data as Pixel[]; } });
-    const { data: adPages } = useQuery({ queryKey: ["ad_pages"], queryFn: async () => { const { data, error } = await supabase.from("ad_pages").select("id, page_id, name"); if (error) throw error; return data as AdPage[]; } });
-    const { data: instagramAccounts } = useQuery({ queryKey: ["instagram_accounts"], queryFn: async () => { const { data, error } = await supabase.from("instagram_accounts").select("id, instagram_actor_id, name"); if (error) throw error; return data as InstagramAccount[]; } });
+    const { data: adPages } = useQuery({ queryKey: ["ad_pages"], queryFn: async () => { const { data, error } = await supabase.from("ad_pages").select("id, page_id, name, business_manager_id"); if (error) throw error; return data as AdPage[]; } });
+    const { data: instagramAccounts } = useQuery({ queryKey: ["instagram_accounts"], queryFn: async () => { const { data, error } = await supabase.from("instagram_accounts").select("id, instagram_actor_id, name, business_manager_id"); if (error) throw error; return data as InstagramAccount[]; } });
     const { data: websites } = useQuery({ queryKey: ["websites"], queryFn: async () => { const { data, error } = await supabase.from("websites").select("id, name, url"); if (error) throw error; return data as Website[]; } });
     const { data: templates } = useQuery({
         queryKey: ["bulk_templates"], queryFn: async () => {
@@ -126,6 +137,7 @@ export default function BulkCreationPage() {
         if (c.adset_config) setAdSetConfig(c.adset_config);
         if (c.selected_account_ids) setSelectedAccounts(c.selected_account_ids);
         if (c.selected_campaign_ids) setSelectedCampaignIds(c.selected_campaign_ids);
+        if (c.account_page_map) setAccountPageMap(c.account_page_map);
         setCreateNewCampaigns(c.create_new_campaigns ?? false);
         if (c.default_adset_qty && selectedFiles.length > 0) {
             setSelectedFiles((prev) => prev.map((f) => ({ ...f, adSetQty: c.default_adset_qty })));
@@ -143,6 +155,7 @@ export default function BulkCreationPage() {
                 create_new_campaigns: createNewCampaigns,
                 selected_account_ids: selectedAccounts,
                 selected_campaign_ids: selectedCampaignIds,
+                account_page_map: accountPageMap,
             };
             const { error } = await supabase.from("bulk_templates").insert({
                 name: templateName, description: templateDesc || null, config,
@@ -195,7 +208,24 @@ export default function BulkCreationPage() {
     const updateFile = (id: string, field: keyof SelectedFile, value: any) => {
         setSelectedFiles((prev) => prev.map((f) => f.driveFileId === id ? { ...f, [field]: value } : f));
     };
-    const toggleAccount = (id: string) => setSelectedAccounts((prev) => prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]);
+    const toggleAccount = (id: string) => {
+        setSelectedAccounts((prev) => {
+            const next = prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id];
+            // Sync accountPageMap: add entry for new accounts, keep existing ones
+            setAccountPageMap((prevMap) => {
+                const newMap = { ...prevMap };
+                if (!prev.includes(id)) {
+                    // Adding account — initialize with empty values
+                    if (!newMap[id]) newMap[id] = { ad_page_id: "", instagram_account_id: "" };
+                } else {
+                    // Removing account
+                    delete newMap[id];
+                }
+                return newMap;
+            });
+            return next;
+        });
+    };
     const toggleCampaign = (id: string) => setSelectedCampaignIds((prev) => prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]);
 
     // ── Totals ──
@@ -210,19 +240,46 @@ export default function BulkCreationPage() {
 
     // ── Preview ──
     const buildPreview = () => {
-        const result: { name: string; isExisting: boolean; objective: string; adSets: { name: string; ads: { name: string }[] }[] }[] = [];
+        type CampaignPreview = { name: string; isExisting: boolean; objective: string; adSets: { name: string; ads: { name: string }[] }[] };
+        type AccountPreview = { accountId: string; accountName: string; accountAdId: string; pageName: string | null; instaName: string | null; campaigns: CampaignPreview[] };
+        const result: AccountPreview[] = [];
+
         const makeAdSets = () => selectedFiles.flatMap((file) =>
             Array.from({ length: file.adSetQty }, (_, si) => ({
                 name: resolveName(adSetConfig.name, file.adName, si), ads: [{ name: file.adName }],
             })),
         );
-        for (const campId of selectedCampaignIds) {
-            const c = existingCampaigns?.find((x) => x.id === campId);
-            if (c) result.push({ name: c.name, isExisting: true, objective: c.objective, adSets: makeAdSets() });
-        }
-        if (createNewCampaigns) {
-            for (let ci = 0; ci < newCampaignConfig.quantity; ci++) {
-                result.push({ name: newCampaignConfig.name.replace(/\{\{i\}\}/g, String(ci + 1)), isExisting: false, objective: newCampaignConfig.objective, adSets: makeAdSets() });
+
+        for (const accId of selectedAccounts) {
+            const acc = adAccounts?.find((a) => a.id === accId);
+            const mapping = accountPageMap[accId];
+            const page = mapping ? adPages?.find((p) => p.id === mapping.ad_page_id) : null;
+            const insta = mapping ? instagramAccounts?.find((i) => i.id === mapping.instagram_account_id) : null;
+
+            const campaigns: CampaignPreview[] = [];
+
+            // Existing campaigns belonging to this account
+            for (const campId of selectedCampaignIds) {
+                const c = existingCampaigns?.find((x) => x.id === campId && x.ad_account_id === accId);
+                if (c) campaigns.push({ name: c.name, isExisting: true, objective: c.objective, adSets: makeAdSets() });
+            }
+
+            // New campaigns
+            if (createNewCampaigns) {
+                for (let ci = 0; ci < newCampaignConfig.quantity; ci++) {
+                    campaigns.push({ name: newCampaignConfig.name.replace(/\{\{i\}\}/g, String(ci + 1)), isExisting: false, objective: newCampaignConfig.objective, adSets: makeAdSets() });
+                }
+            }
+
+            if (campaigns.length > 0) {
+                result.push({
+                    accountId: accId,
+                    accountName: acc?.account_name || accId,
+                    accountAdId: acc?.account_id || "",
+                    pageName: page?.name || null,
+                    instaName: insta?.name || null,
+                    campaigns,
+                });
             }
         }
         return result;
@@ -231,8 +288,6 @@ export default function BulkCreationPage() {
     // ── Submit ──
     const submitMutation = useMutation({
         mutationFn: async () => {
-            const selectedPage = adPages?.find((p) => p.id === adConfig.ad_page_id);
-            const selectedInsta = instagramAccounts?.find((i) => i.id === adConfig.instagram_account_id);
             const selectedWebsite = websites?.find((w) => w.id === adConfig.website_id);
             const selectedPixel = pixels?.find((p) => p.id === adSetConfig.pixel_id);
             const gendersArray = adSetConfig.genders === "0" ? [0] : adSetConfig.genders === "1" ? [1] : [2];
@@ -304,8 +359,8 @@ export default function BulkCreationPage() {
                                 ad_id: ad.id, adset_id: adSet.id, campaign_id: camp.id,
                                 name: file.adName, headline: adConfig.headline || null,
                                 call_to_action: adConfig.call_to_action,
-                                page_id: selectedPage?.page_id || null,
-                                instagram_actor_id: selectedInsta?.instagram_actor_id || null,
+                                page_id: (() => { const m = accountPageMap[camp.ad_account_id]; const p = adPages?.find((x) => x.id === m?.ad_page_id); return p?.page_id || null; })(),
+                                instagram_actor_id: (() => { const m = accountPageMap[camp.ad_account_id]; const i = instagramAccounts?.find((x) => x.id === m?.instagram_account_id); return i?.instagram_actor_id || null; })(),
                                 video_drive_id: file.driveFileId,
                                 video_drive_url: driveUrl || null, video_file_name: file.fileName,
                                 link_url: baseUrl || null, url_tags: adConfig.utm_params || null,
@@ -351,7 +406,7 @@ export default function BulkCreationPage() {
     });
 
     const canGoNext = () => {
-        if (step === 0) return selectedFiles.length > 0 && adConfig.ad_page_id && adConfig.website_id && selectedAccounts.length > 0;
+        if (step === 0) return selectedFiles.length > 0 && adConfig.website_id && selectedAccounts.length > 0 && selectedAccounts.every((id) => accountPageMap[id]?.ad_page_id);
         if (step === 1) return adSetConfig.name && adSetConfig.countries;
         if (step === 2) return selectedCampaignIds.length > 0 || (createNewCampaigns && newCampaignConfig.name);
         return true;
@@ -399,8 +454,20 @@ export default function BulkCreationPage() {
                                         const allSelected = filteredIds.every((id) => selectedAccounts.includes(id));
                                         if (allSelected) {
                                             setSelectedAccounts((prev) => prev.filter((id) => !filteredIds.includes(id)));
+                                            setAccountPageMap((prev) => {
+                                                const newMap = { ...prev };
+                                                filteredIds.forEach((id) => delete newMap[id]);
+                                                return newMap;
+                                            });
                                         } else {
                                             setSelectedAccounts((prev) => [...new Set([...prev, ...filteredIds])]);
+                                            setAccountPageMap((prev) => {
+                                                const newMap = { ...prev };
+                                                filteredIds.forEach((id) => {
+                                                    if (!newMap[id]) newMap[id] = { ad_page_id: "", instagram_account_id: "" };
+                                                });
+                                                return newMap;
+                                            });
                                         }
                                     }}
                                 >
@@ -513,25 +580,46 @@ export default function BulkCreationPage() {
             </Card>
 
 
+            {/* Per-account page mapping */}
+            {selectedAccounts.length > 0 && (
+                <Card>
+                    <CardHeader><CardTitle className="text-lg flex items-center gap-2">📘 Páginas por Conta *</CardTitle></CardHeader>
+                    <CardContent className="space-y-4">
+                        {selectedAccounts.map((accId) => {
+                            const acc = adAccounts?.find((a) => a.id === accId);
+                            const bmId = acc?.business_manager_id;
+                            const filteredPages = adPages?.filter((p) => !bmId || p.business_manager_id === bmId) || [];
+                            const filteredInstas = instagramAccounts?.filter((i) => !bmId || i.business_manager_id === bmId) || [];
+                            const mapping = accountPageMap[accId] || { ad_page_id: "", instagram_account_id: "" };
+                            return (
+                                <div key={accId} className="border rounded-lg p-4 space-y-3">
+                                    <p className="text-sm font-medium">{acc?.account_name} <span className="text-muted-foreground">({acc?.account_id})</span></p>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <Label className="text-xs">Página de Anúncio *</Label>
+                                            <Select value={mapping.ad_page_id} onValueChange={(v) => updateAccountPage(accId, "ad_page_id", v)}>
+                                                <SelectTrigger className="h-9"><SelectValue placeholder="Selecione a página" /></SelectTrigger>
+                                                <SelectContent>{filteredPages.map((p) => (<SelectItem key={p.id} value={p.id}>📘 {p.name}</SelectItem>))}</SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div>
+                                            <Label className="text-xs">Conta Instagram</Label>
+                                            <Select value={mapping.instagram_account_id} onValueChange={(v) => updateAccountPage(accId, "instagram_account_id", v)}>
+                                                <SelectTrigger className="h-9"><SelectValue placeholder="Nenhuma (opcional)" /></SelectTrigger>
+                                                <SelectContent>{filteredInstas.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </CardContent>
+                </Card>
+            )}
+
             <Card>
                 <CardHeader><CardTitle className="text-lg">Configurações do Anúncio</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <Label>Página de Anúncio *</Label>
-                            <Select value={adConfig.ad_page_id} onValueChange={(v) => setAdConfig({ ...adConfig, ad_page_id: v })}>
-                                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                                <SelectContent>{adPages?.map((p) => (<SelectItem key={p.id} value={p.id}>📘 {p.name}</SelectItem>))}</SelectContent>
-                            </Select>
-                        </div>
-                        <div>
-                            <Label>Conta Instagram</Label>
-                            <Select value={adConfig.instagram_account_id} onValueChange={(v) => setAdConfig({ ...adConfig, instagram_account_id: v })}>
-                                <SelectTrigger><SelectValue placeholder="Nenhuma (opcional)" /></SelectTrigger>
-                                <SelectContent>{instagramAccounts?.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
-                            </Select>
-                        </div>
-                    </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div><Label>Título *</Label><Input placeholder="Ex: Oferta Imperdível!" value={adConfig.headline} onChange={(e) => setAdConfig({ ...adConfig, headline: e.target.value })} /></div>
                         <div>
@@ -681,28 +769,39 @@ export default function BulkCreationPage() {
         const preview = buildPreview();
         return (
             <div className="space-y-6">
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-4 gap-4">
+                    <Card><CardContent className="pt-6 text-center"><Badge variant="secondary" className="w-8 h-8 mx-auto mb-2 rounded-full flex items-center justify-center text-lg p-0">📊</Badge><p className="text-3xl font-bold">{selectedAccounts.length}</p><p className="text-sm text-muted-foreground">Contas</p></CardContent></Card>
                     <Card><CardContent className="pt-6 text-center"><Megaphone className="w-8 h-8 mx-auto mb-2 text-primary" /><p className="text-3xl font-bold">{totalCampaigns}</p><p className="text-sm text-muted-foreground">Campanhas</p></CardContent></Card>
                     <Card><CardContent className="pt-6 text-center"><Layers className="w-8 h-8 mx-auto mb-2 text-primary" /><p className="text-3xl font-bold">{totalSets}</p><p className="text-sm text-muted-foreground">Conjuntos</p></CardContent></Card>
                     <Card><CardContent className="pt-6 text-center"><FileImage className="w-8 h-8 mx-auto mb-2 text-primary" /><p className="text-3xl font-bold">{totalAds}</p><p className="text-sm text-muted-foreground">Anúncios</p></CardContent></Card>
                 </div>
 
+                {/* Accounts summary */}
                 <Card>
                     <CardHeader><CardTitle className="text-lg">Estrutura</CardTitle></CardHeader>
                     <CardContent>
-                        <div className="space-y-2 text-sm font-mono">
-                            {preview.map((camp, ci) => (
-                                <div key={ci} className="mb-3">
-                                    <p className="font-semibold">
-                                        📂 {camp.name}
-                                        <Badge variant={camp.isExisting ? "secondary" : "default"} className="ml-2 text-xs font-sans">{camp.isExisting ? "Existente" : "Nova"}</Badge>
-                                        <Badge variant="outline" className="ml-1 text-xs font-sans">{CAMPAIGN_OBJECTIVES.find((o) => o.value === camp.objective)?.label}</Badge>
-                                    </p>
-                                    {camp.adSets.map((as_item, asi) => (
-                                        <div key={asi} className="ml-4">
-                                            <p>📁 {as_item.name}</p>
-                                            {as_item.ads.map((ad, adi) => (
-                                                <p key={adi} className="ml-4 text-muted-foreground">📄 {ad.name}</p>
+                        <div className="space-y-4 text-sm font-mono">
+                            {preview.map((account, ai) => (
+                                <div key={ai} className="border rounded-lg p-4">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <p className="font-bold text-base">📊 {account.accountName} <span className="text-muted-foreground font-normal">({account.accountAdId})</span></p>
+                                        {account.pageName && <Badge variant="outline" className="text-xs font-sans">📘 {account.pageName}</Badge>}
+                                        {account.instaName && <Badge variant="outline" className="text-xs font-sans">📸 {account.instaName}</Badge>}
+                                    </div>
+                                    {account.campaigns.map((camp, ci) => (
+                                        <div key={ci} className="ml-4 mb-2">
+                                            <p className="font-semibold">
+                                                📂 {camp.name}
+                                                <Badge variant={camp.isExisting ? "secondary" : "default"} className="ml-2 text-xs font-sans">{camp.isExisting ? "Existente" : "Nova"}</Badge>
+                                                <Badge variant="outline" className="ml-1 text-xs font-sans">{CAMPAIGN_OBJECTIVES.find((o) => o.value === camp.objective)?.label}</Badge>
+                                            </p>
+                                            {camp.adSets.map((as_item, asi) => (
+                                                <div key={asi} className="ml-4">
+                                                    <p>📁 {as_item.name}</p>
+                                                    {as_item.ads.map((ad, adi) => (
+                                                        <p key={adi} className="ml-4 text-muted-foreground">📄 {ad.name}</p>
+                                                    ))}
+                                                </div>
                                             ))}
                                         </div>
                                     ))}
