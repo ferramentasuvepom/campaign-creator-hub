@@ -585,6 +585,38 @@ export default function BulkCreationPage() {
                 <Card>
                     <CardHeader><CardTitle className="text-lg flex items-center gap-2">📘 Páginas por Conta *</CardTitle></CardHeader>
                     <CardContent className="space-y-4">
+                        {/* Apply to all */}
+                        <div className="border rounded-lg p-4 bg-muted/30 space-y-3">
+                            <p className="text-sm font-medium">🔗 Aplicar para todas as contas</p>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <Label className="text-xs">Página de Anúncio</Label>
+                                    <Select onValueChange={(v) => {
+                                        setAccountPageMap((prev) => {
+                                            const newMap = { ...prev };
+                                            selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], ad_page_id: v }; });
+                                            return newMap;
+                                        });
+                                    }}>
+                                        <SelectTrigger className="h-9"><SelectValue placeholder="Selecionar página para todas..." /></SelectTrigger>
+                                        <SelectContent>{adPages?.map((p) => (<SelectItem key={p.id} value={p.id}>📘 {p.name}</SelectItem>))}</SelectContent>
+                                    </Select>
+                                </div>
+                                <div>
+                                    <Label className="text-xs">Conta Instagram</Label>
+                                    <Select onValueChange={(v) => {
+                                        setAccountPageMap((prev) => {
+                                            const newMap = { ...prev };
+                                            selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], instagram_account_id: v }; });
+                                            return newMap;
+                                        });
+                                    }}>
+                                        <SelectTrigger className="h-9"><SelectValue placeholder="Selecionar Instagram para todas..." /></SelectTrigger>
+                                        <SelectContent>{instagramAccounts?.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                        </div>
                         {selectedAccounts.map((accId) => {
                             const acc = adAccounts?.find((a) => a.id === accId);
                             const bmId = acc?.business_manager_id;
