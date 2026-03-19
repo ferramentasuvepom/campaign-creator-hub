@@ -90,6 +90,7 @@ CREATE TABLE facebook_ads_manager.campaigns (
   last_synced_at TIMESTAMPTZ,
   budget_type TEXT DEFAULT 'daily',
   special_ad_categories TEXT[] DEFAULT '{}',
+  execution_id BIGINT REFERENCES facebook_ads_manager.bulk_executions(id),
   created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
@@ -117,6 +118,7 @@ CREATE TABLE facebook_ads_manager.ad_sets (
   facebook_adset_id TEXT,
   sync_status TEXT DEFAULT 'pending',
   sync_error TEXT,
+  execution_id BIGINT REFERENCES facebook_ads_manager.bulk_executions(id),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -144,6 +146,7 @@ CREATE TABLE facebook_ads_manager.ads (
   facebook_ad_id TEXT,
   sync_status TEXT DEFAULT 'pending',
   sync_error TEXT,
+  execution_id BIGINT REFERENCES facebook_ads_manager.bulk_executions(id),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -249,6 +252,7 @@ CREATE TABLE facebook_ads_manager.bulk_executions (
   total_campaigns INT DEFAULT 0,
   total_adsets INT DEFAULT 0,
   total_ads INT DEFAULT 0,
+  error_message TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -266,6 +270,7 @@ CREATE TABLE facebook_ads_manager.advideos_tasks (
   video_name TEXT,
   meta_video_id TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
+  execution_id BIGINT REFERENCES facebook_ads_manager.bulk_executions(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

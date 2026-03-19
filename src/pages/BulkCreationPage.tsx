@@ -294,6 +294,20 @@ export default function BulkCreationPage() {
             const countriesArray = adSetConfig.countries.split(",").map((c) => c.trim().toUpperCase()).filter(Boolean);
             const baseUrl = selectedWebsite?.url || "";
 
+            // Phase 0: Create execution record BEFORE webhook so we have the ID
+            const now = new Date();
+            const execName = `Bulk ${now.toLocaleDateString("pt-BR")} ${now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+            const { data: exec, error: execError } = await supabase.from("bulk_executions").insert({
+                name: execName,
+                status: "pending",
+                total_campaigns: totalCampaigns,
+                total_adsets: totalSets,
+                total_ads: totalAds,
+            }).select("id").single();
+            if (execError) throw execError;
+            const currentExecutionId = exec.id;
+            setExecutionId(String(currentExecutionId));
+
             // Phase 1: Collect all campaigns
             const allCampaigns: { id: string; ad_account_id: string; name: string; isExisting: boolean }[] = [];
 
@@ -313,6 +327,7 @@ export default function BulkCreationPage() {
                                 daily_budget: Math.round(parseFloat(newCampaignConfig.daily_budget) * 100),
                                 bid_strategy: newCampaignConfig.bid_strategy,
                                 status: "DRAFT", sync_status: "pending",
+                                execution_id: currentExecutionId,
                             }).select("id").single();
                         if (campError) throw campError;
                         allCampaigns.push({ id: campaign.id, ad_account_id: accountId, name: campName, isExisting: false });
@@ -320,14 +335,20 @@ export default function BulkCreationPage() {
                 }
             }
 
-            // Phase 2: For each campaign, create ad sets per creative
+            // Phase 2: For each campaign, create ad sets per creative (with indices)
             const webhookCampaigns: any[] = [];
+            let globalAdSetIndex = 0;
+            let globalAdIndex = 0;
 
-            for (const camp of allCampaigns) {
+            for (let campIdx = 0; campIdx < allCampaigns.length; campIdx++) {
+                const camp = allCampaigns[campIdx];
                 const webhookAdSets: any[] = [];
 
-                for (const file of selectedFiles) {
+                for (let fi = 0; fi < selectedFiles.length; fi++) {
+                    const file = selectedFiles[fi];
                     for (let si = 0; si < file.adSetQty; si++) {
+                        globalAdSetIndex++;
+                        globalAdIndex++;
                         const setName = resolveName(adSetConfig.name, file.adName, si);
 
                         const { data: adSet, error: setError } = await supabase
@@ -335,6 +356,7 @@ export default function BulkCreationPage() {
                                 campaign_id: camp.id, name: setName,
                                 age_min: parseInt(adSetConfig.age_min), age_max: parseInt(adSetConfig.age_max),
                                 genders: gendersArray, targeting_countries: countriesArray,
+                                execution_id: currentExecutionId,
                             }).select("id").single();
                         if (setError) throw setError;
 
@@ -343,10 +365,12 @@ export default function BulkCreationPage() {
                                 ad_set_id: adSet.id, name: file.adName,
                                 headline: adConfig.headline || null, call_to_action: adConfig.call_to_action,
                                 link_url: baseUrl || null, video_drive_url: driveUrl || null,
+                                execution_id: currentExecutionId,
                             }).select("id").single();
                         if (adError) throw adError;
 
                         webhookAdSets.push({
+                            adset_index: globalAdSetIndex,
                             adset_id: adSet.id, campaign_id: camp.id, name: setName,
                             age_min: parseInt(adSetConfig.age_min), age_max: parseInt(adSetConfig.age_max),
                             genders: gendersArray, countries: countriesArray,
@@ -356,12 +380,13 @@ export default function BulkCreationPage() {
                             promoted_object: selectedPixel ? { pixel_id: selectedPixel.pixel_id, custom_event_type: "PURCHASE" } : undefined,
                             targeting_automation: { advantage_audience: 1 },
                             ads: [{
+                                ad_index: globalAdIndex,
                                 ad_id: ad.id, adset_id: adSet.id, campaign_id: camp.id,
                                 name: file.adName, headline: adConfig.headline || null,
                                 call_to_action: adConfig.call_to_action,
                                 page_id: (() => { const m = accountPageMap[camp.ad_account_id]; const p = adPages?.find((x) => x.id === m?.ad_page_id); return p?.page_id || null; })(),
                                 instagram_actor_id: (() => { const m = accountPageMap[camp.ad_account_id]; const i = instagramAccounts?.find((x) => x.id === m?.instagram_account_id); return i?.instagram_actor_id || null; })(),
-                                video_drive_id: file.driveFileId,
+                                video_index: fi + 1, video_drive_id: file.driveFileId,
                                 video_drive_url: driveUrl || null, video_file_name: file.fileName,
                                 link_url: baseUrl || null, url_tags: adConfig.utm_params || null,
                                 enable_multi_advertiser: adConfig.enable_multi_advertiser,
@@ -371,6 +396,7 @@ export default function BulkCreationPage() {
                 }
 
                 webhookCampaigns.push({
+                    campaign_index: campIdx + 1,
                     campaign_id: camp.id, ad_account_id: camp.ad_account_id,
                     name: camp.name, is_existing: camp.isExisting,
                     objective: camp.isExisting ? undefined : newCampaignConfig.objective,
@@ -382,23 +408,12 @@ export default function BulkCreationPage() {
 
             const res = await fetch(import.meta.env.VITE_N8N_WEBHOOK_BULK, {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ campaigns: webhookCampaigns, user_id: user?.id, total_campaigns: totalCampaigns, total_adsets: totalSets, total_ads: totalAds }),
+                body: JSON.stringify({ execution_id: currentExecutionId, campaigns: webhookCampaigns, user_id: user?.id, total_campaigns: totalCampaigns, total_adsets: totalSets, total_ads: totalAds, total_videos: selectedFiles.length }),
             });
             if (!res.ok) throw new Error("Webhook falhou");
             return webhookCampaigns;
         },
-        onSuccess: async (webhookCampaigns) => {
-            // Save execution record
-            const now = new Date();
-            const execName = `Bulk ${now.toLocaleDateString("pt-BR")} ${now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
-            const { data: exec } = await supabase.from("bulk_executions").insert({
-                name: execName,
-                status: "pending",
-                total_campaigns: totalCampaigns,
-                total_adsets: totalSets,
-                total_ads: totalAds,
-            }).select("id").single();
-            if (exec) setExecutionId(exec.id);
+        onSuccess: async () => {
             toast({ title: "Enviado com sucesso!", description: `${totalCampaigns} campanhas, ${totalSets} conjuntos e ${totalAds} anúncios.` });
             setStep(4);
         },

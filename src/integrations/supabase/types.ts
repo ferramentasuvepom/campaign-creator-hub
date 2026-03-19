@@ -111,6 +111,7 @@ export type Database = {
                     last_synced_at: string | null
                     budget_type: string
                     special_ad_categories: string[]
+                    execution_id: number | null
                     created_at: string
                     updated_at: string
                 }
@@ -130,6 +131,7 @@ export type Database = {
                     sync_error?: string | null
                     budget_type?: string
                     special_ad_categories?: string[]
+                    execution_id?: number | null
                     created_at?: string
                     updated_at?: string
                 }
@@ -149,6 +151,7 @@ export type Database = {
                     sync_error?: string | null
                     budget_type?: string
                     special_ad_categories?: string[]
+                    execution_id?: number | null
                     created_at?: string
                     updated_at?: string
                 }
@@ -170,6 +173,7 @@ export type Database = {
                     facebook_adset_id: string | null
                     sync_status: string
                     sync_error: string | null
+                    execution_id: number | null
                     created_at: string
                     updated_at: string
                 }
@@ -183,6 +187,7 @@ export type Database = {
                     age_max?: number
                     genders?: number[]
                     daily_budget?: number | null
+                    execution_id?: number | null
                     created_at?: string
                     updated_at?: string
                 }
@@ -196,6 +201,7 @@ export type Database = {
                     age_max?: number
                     genders?: number[]
                     daily_budget?: number | null
+                    execution_id?: number | null
                     created_at?: string
                     updated_at?: string
                 }
@@ -217,6 +223,7 @@ export type Database = {
                     facebook_ad_id: string | null
                     sync_status: string
                     sync_error: string | null
+                    execution_id: number | null
                     created_at: string
                     updated_at: string
                 }
@@ -230,6 +237,7 @@ export type Database = {
                     call_to_action?: string
                     link_url?: string | null
                     video_drive_url?: string | null
+                    execution_id?: number | null
                     created_at?: string
                     updated_at?: string
                 }
@@ -243,6 +251,7 @@ export type Database = {
                     call_to_action?: string
                     link_url?: string | null
                     video_drive_url?: string | null
+                    execution_id?: number | null
                     created_at?: string
                     updated_at?: string
                 }
@@ -394,6 +403,7 @@ export type Database = {
                     total_campaigns: number
                     total_adsets: number
                     total_ads: number
+                    error_message: string | null
                     created_at: string
                 }
                 Insert: {
@@ -403,6 +413,7 @@ export type Database = {
                     total_campaigns?: number
                     total_adsets?: number
                     total_ads?: number
+                    error_message?: string | null
                     created_at?: string
                 }
                 Update: {
@@ -412,6 +423,7 @@ export type Database = {
                     total_campaigns?: number
                     total_adsets?: number
                     total_ads?: number
+                    error_message?: string | null
                     created_at?: string
                 }
                 Relationships: []
@@ -423,6 +435,7 @@ export type Database = {
                     video_name: string | null
                     meta_video_id: string | null
                     status: string
+                    execution_id: number | null
                     created_at: string
                 }
                 Insert: {
@@ -431,6 +444,7 @@ export type Database = {
                     video_name?: string | null
                     meta_video_id?: string | null
                     status?: string
+                    execution_id?: number | null
                     created_at?: string
                 }
                 Update: {
@@ -439,6 +453,7 @@ export type Database = {
                     video_name?: string | null
                     meta_video_id?: string | null
                     status?: string
+                    execution_id?: number | null
                     created_at?: string
                 }
                 Relationships: []
