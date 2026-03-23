@@ -61,6 +61,8 @@ export default function BulkCreationPage() {
     const [showSaveDialog, setShowSaveDialog] = useState(false);
     const [templateName, setTemplateName] = useState("");
     const [templateDesc, setTemplateDesc] = useState("");
+    const [appliedTemplateName, setAppliedTemplateName] = useState<string | null>(null);
+    const [useSamePages, setUseSamePages] = useState(true);
 
     // ── Drive ──
     const [driveUrl, setDriveUrl] = useState("");
@@ -78,11 +80,21 @@ export default function BulkCreationPage() {
     const [accountPageMap, setAccountPageMap] = useState<
         Record<string, { ad_page_id: string; instagram_account_id: string }>
     >({});
+    // ── Per-ad (creative) page mapping ──
+    const [adPageMap, setAdPageMap] = useState<
+        Record<string, { ad_page_id: string; instagram_account_id: string }>
+    >({});
 
     const updateAccountPage = (accountId: string, field: string, value: string) => {
         setAccountPageMap((prev) => ({
             ...prev,
             [accountId]: { ...prev[accountId], [field]: value },
+        }));
+    };
+    const updateAdPage = (driveFileId: string, field: string, value: string) => {
+        setAdPageMap((prev) => ({
+            ...prev,
+            [driveFileId]: { ...prev[driveFileId], [field]: value },
         }));
     };
 
@@ -142,7 +154,22 @@ export default function BulkCreationPage() {
         if (c.default_adset_qty && selectedFiles.length > 0) {
             setSelectedFiles((prev) => prev.map((f) => ({ ...f, adSetQty: c.default_adset_qty })));
         }
+        setAppliedTemplateName(tpl.name);
         toast({ title: `Template "${tpl.name}" aplicado` });
+    };
+
+    const clearTemplate = () => {
+        setAdConfig({ headline: "", call_to_action: "SHOP_NOW", website_id: "", utm_params: "", enable_multi_advertiser: false });
+        setNewCampaignConfig({ name: "Campanha {{i}}", quantity: 1, objective: "OUTCOME_SALES", daily_budget: "20", bid_strategy: "LOWEST_COST_WITHOUT_CAP" });
+        setAdSetConfig({ name: "{{creative}} - Conjunto {{i}}", age_min: "18", age_max: "65", genders: "0", countries: "BR", pixel_id: "", billing_event: "IMPRESSIONS", optimization_goal: "OFFSITE_CONVERSIONS", bid_strategy: "LOWEST_COST_WITHOUT_CAP" });
+        setSelectedAccounts([]);
+        setSelectedCampaignIds([]);
+        setAccountPageMap({});
+        setAdPageMap({});
+        setCreateNewCampaigns(false);
+        setAppliedTemplateName(null);
+        setSelectedFiles((prev) => prev.map((f) => ({ ...f, adSetQty: 1 })));
+        toast({ title: "Template desativado", description: "Configurações restauradas para o padrão." });
     };
 
     const saveTemplateMutation = useMutation({
@@ -384,8 +411,22 @@ export default function BulkCreationPage() {
                                 ad_id: ad.id, adset_id: adSet.id, campaign_id: camp.id,
                                 name: file.adName, headline: adConfig.headline || null,
                                 call_to_action: adConfig.call_to_action,
-                                page_id: (() => { const m = accountPageMap[camp.ad_account_id]; const p = adPages?.find((x) => x.id === m?.ad_page_id); return p?.page_id || null; })(),
-                                instagram_actor_id: (() => { const m = accountPageMap[camp.ad_account_id]; const i = instagramAccounts?.find((x) => x.id === m?.instagram_account_id); return i?.instagram_actor_id || null; })(),
+                                page_id: (() => {
+                                    if (!useSamePages) {
+                                        const am = adPageMap[file.driveFileId];
+                                        const p = adPages?.find((x) => x.id === am?.ad_page_id);
+                                        return p?.page_id || null;
+                                    }
+                                    const m = accountPageMap[camp.ad_account_id]; const p = adPages?.find((x) => x.id === m?.ad_page_id); return p?.page_id || null;
+                                })(),
+                                instagram_actor_id: (() => {
+                                    if (!useSamePages) {
+                                        const am = adPageMap[file.driveFileId];
+                                        const i = instagramAccounts?.find((x) => x.id === am?.instagram_account_id);
+                                        return i?.instagram_actor_id || null;
+                                    }
+                                    const m = accountPageMap[camp.ad_account_id]; const i = instagramAccounts?.find((x) => x.id === m?.instagram_account_id); return i?.instagram_actor_id || null;
+                                })(),
                                 video_index: fi + 1, video_drive_id: file.driveFileId,
                                 video_drive_url: driveUrl || null, video_file_name: file.fileName,
                                 link_url: baseUrl || null, url_tags: adConfig.utm_params || null,
@@ -533,24 +574,7 @@ export default function BulkCreationPage() {
                             </Button>
                         </div>
                     </div>
-                    {/* Template selector — between URL and file list */}
-                    {driveFiles.length > 0 && templates && templates.length > 0 && (
-                        <div className="border rounded-lg p-3 bg-muted/30">
-                            <div className="flex items-center gap-3">
-                                <FileStack className="w-4 h-4 text-muted-foreground shrink-0" />
-                                <Select onValueChange={(id) => { const t = templates.find((x) => x.id === id); if (t) applyTemplate(t); }}>
-                                    <SelectTrigger className="h-9"><SelectValue placeholder="Aplicar template..." /></SelectTrigger>
-                                    <SelectContent>
-                                        {templates.map((t) => (
-                                            <SelectItem key={t.id} value={t.id}>
-                                                {t.name}{t.description ? ` — ${t.description}` : ""}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-                    )}
+
                     {driveFiles.length > 0 && (
                         <div className="space-y-3">
                             <div className="flex items-center justify-between">
@@ -594,73 +618,81 @@ export default function BulkCreationPage() {
                 </CardContent>
             </Card>
 
-
-            {/* Per-account page mapping */}
-            {selectedAccounts.length > 0 && (
+            {/* Template selector — after Drive files */}
+            {driveFiles.length > 0 && templates && templates.length > 0 && (
                 <Card>
-                    <CardHeader><CardTitle className="text-lg flex items-center gap-2">📘 Páginas por Conta *</CardTitle></CardHeader>
-                    <CardContent className="space-y-4">
-                        {/* Apply to all */}
-                        <div className="border rounded-lg p-4 bg-muted/30 space-y-3">
-                            <p className="text-sm font-medium">🔗 Aplicar para todas as contas</p>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <Label className="text-xs">Página de Anúncio</Label>
-                                    <Select onValueChange={(v) => {
-                                        setAccountPageMap((prev) => {
-                                            const newMap = { ...prev };
-                                            selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], ad_page_id: v }; });
-                                            return newMap;
-                                        });
-                                    }}>
-                                        <SelectTrigger className="h-9"><SelectValue placeholder="Selecionar página para todas..." /></SelectTrigger>
-                                        <SelectContent>{adPages?.map((p) => (<SelectItem key={p.id} value={p.id}>📘 {p.name}</SelectItem>))}</SelectContent>
-                                    </Select>
-                                </div>
-                                <div>
-                                    <Label className="text-xs">Conta Instagram</Label>
-                                    <Select onValueChange={(v) => {
-                                        setAccountPageMap((prev) => {
-                                            const newMap = { ...prev };
-                                            selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], instagram_account_id: v }; });
-                                            return newMap;
-                                        });
-                                    }}>
-                                        <SelectTrigger className="h-9"><SelectValue placeholder="Selecionar Instagram para todas..." /></SelectTrigger>
-                                        <SelectContent>{instagramAccounts?.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
+                    <CardHeader>
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-lg flex items-center gap-2">
+                                <FileStack className="w-5 h-5" />Aplicar Template
+                            </CardTitle>
+                            {appliedTemplateName && (
+                                <Badge variant="default" className="text-xs">✓ {appliedTemplateName}</Badge>
+                            )}
                         </div>
-                        {selectedAccounts.map((accId) => {
-                            const acc = adAccounts?.find((a) => a.id === accId);
-                            const bmId = acc?.business_manager_id;
-                            const filteredPages = adPages?.filter((p) => !bmId || p.business_manager_id === bmId) || [];
-                            const filteredInstas = instagramAccounts?.filter((i) => !bmId || i.business_manager_id === bmId) || [];
-                            const mapping = accountPageMap[accId] || { ad_page_id: "", instagram_account_id: "" };
+                        <p className="text-sm text-muted-foreground">
+                            Aplique um template para preencher automaticamente contas, páginas, campanhas e configurações.
+                        </p>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                        {templates.map((tpl) => {
+                            const isApplied = appliedTemplateName === tpl.name;
+                            const obj = CAMPAIGN_OBJECTIVES.find((o) => o.value === tpl.config.campaign_config?.objective);
                             return (
-                                <div key={accId} className="border rounded-lg p-4 space-y-3">
-                                    <p className="text-sm font-medium">{acc?.account_name} <span className="text-muted-foreground">({acc?.account_id})</span></p>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <Label className="text-xs">Página de Anúncio *</Label>
-                                            <Select value={mapping.ad_page_id} onValueChange={(v) => updateAccountPage(accId, "ad_page_id", v)}>
-                                                <SelectTrigger className="h-9"><SelectValue placeholder="Selecione a página" /></SelectTrigger>
-                                                <SelectContent>{filteredPages.map((p) => (<SelectItem key={p.id} value={p.id}>📘 {p.name}</SelectItem>))}</SelectContent>
-                                            </Select>
+                                <div
+                                    key={tpl.id}
+                                    className={`border rounded-lg p-4 transition-colors cursor-pointer hover:border-primary/40 hover:bg-primary/5 ${
+                                        isApplied ? "border-primary/60 bg-primary/10 ring-1 ring-primary/30" : ""
+                                    }`}
+                                    onClick={() => applyTemplate(tpl)}
+                                >
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <p className="font-semibold text-sm">{tpl.name}</p>
+                                                {isApplied && <Badge variant="default" className="text-xs">Aplicado</Badge>}
+                                                <Badge variant="outline" className="text-xs">
+                                                    {new Date(tpl.created_at).toLocaleDateString("pt-BR")}
+                                                </Badge>
+                                            </div>
+                                            {tpl.description && <p className="text-xs text-muted-foreground mb-2">{tpl.description}</p>}
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {obj && <Badge variant="secondary" className="text-xs">{obj.label}</Badge>}
+                                                {tpl.config.create_new_campaigns && (
+                                                    <Badge variant="secondary" className="text-xs">
+                                                        {tpl.config.campaign_config?.quantity || 1} campanha(s) nova(s)
+                                                    </Badge>
+                                                )}
+                                                <Badge variant="secondary" className="text-xs">
+                                                    {tpl.config.default_adset_qty || 1} conjunto(s)/campanha
+                                                </Badge>
+                                                {tpl.config.selected_account_ids?.length > 0 && (
+                                                    <Badge variant="secondary" className="text-xs">
+                                                        {tpl.config.selected_account_ids.length} conta(s)
+                                                    </Badge>
+                                                )}
+                                            </div>
                                         </div>
-                                        <div>
-                                            <Label className="text-xs">Conta Instagram</Label>
-                                            <Select value={mapping.instagram_account_id} onValueChange={(v) => updateAccountPage(accId, "instagram_account_id", v)}>
-                                                <SelectTrigger className="h-9"><SelectValue placeholder="Nenhuma (opcional)" /></SelectTrigger>
-                                                <SelectContent>{filteredInstas.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
-                                            </Select>
-                                        </div>
+                                        <Button
+                                            variant={isApplied ? "default" : "outline"}
+                                            size="sm"
+                                            className="shrink-0"
+                                            onClick={(e) => { e.stopPropagation(); applyTemplate(tpl); }}
+                                        >
+                                            {isApplied ? "✓ Aplicado" : "Aplicar"}
+                                        </Button>
                                     </div>
                                 </div>
                             );
                         })}
                     </CardContent>
+                    {appliedTemplateName && (
+                        <div className="px-6 pb-4">
+                            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive w-full" onClick={clearTemplate}>
+                                Desativar Template
+                            </Button>
+                        </div>
+                    )}
                 </Card>
             )}
 
@@ -687,6 +719,81 @@ export default function BulkCreationPage() {
                         </div>
                         <div><Label>UTMs</Label><Input placeholder="utm_source=fb&utm_campaign=promo" value={adConfig.utm_params} onChange={(e) => setAdConfig({ ...adConfig, utm_params: e.target.value })} /></div>
                     </div>
+
+                    {/* Page / Instagram selection */}
+                    {selectedAccounts.length > 0 && (
+                        <div className="border rounded-lg p-4 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <Label className="text-sm font-medium">📘 Página e Instagram</Label>
+                                    <p className="text-xs text-muted-foreground">Selecione a página e conta Instagram para os anúncios</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Label htmlFor="same_pages" className="text-xs text-muted-foreground">Mesma para todas</Label>
+                                    <Switch id="same_pages" checked={useSamePages} onCheckedChange={setUseSamePages} />
+                                </div>
+                            </div>
+
+                            {useSamePages ? (
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <Label className="text-xs">Página de Anúncio *</Label>
+                                        <Select onValueChange={(v) => {
+                                            setAccountPageMap((prev) => {
+                                                const newMap = { ...prev };
+                                                selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], ad_page_id: v }; });
+                                                return newMap;
+                                            });
+                                        }}>
+                                            <SelectTrigger className="h-9"><SelectValue placeholder="Selecionar página..." /></SelectTrigger>
+                                            <SelectContent>{adPages?.map((p) => (<SelectItem key={p.id} value={p.id}>📘 {p.name}</SelectItem>))}</SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div>
+                                        <Label className="text-xs">Conta Instagram</Label>
+                                        <Select onValueChange={(v) => {
+                                            setAccountPageMap((prev) => {
+                                                const newMap = { ...prev };
+                                                selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], instagram_account_id: v }; });
+                                                return newMap;
+                                            });
+                                        }}>
+                                            <SelectTrigger className="h-9"><SelectValue placeholder="Selecionar Instagram..." /></SelectTrigger>
+                                            <SelectContent>{instagramAccounts?.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {selectedFiles.map((file) => {
+                                        const mapping = adPageMap[file.driveFileId] || { ad_page_id: "", instagram_account_id: "" };
+                                        return (
+                                            <div key={file.driveFileId} className="border rounded-lg p-3 space-y-2">
+                                                <p className="text-xs font-medium">🎨 {file.adName || file.fileName}</p>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <div>
+                                                        <Label className="text-xs">Página *</Label>
+                                                        <Select value={mapping.ad_page_id} onValueChange={(v) => updateAdPage(file.driveFileId, "ad_page_id", v)}>
+                                                            <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                                                            <SelectContent>{adPages?.map((p) => (<SelectItem key={p.id} value={p.id}>📘 {p.name}</SelectItem>))}</SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div>
+                                                        <Label className="text-xs">Instagram</Label>
+                                                        <Select value={mapping.instagram_account_id} onValueChange={(v) => updateAdPage(file.driveFileId, "instagram_account_id", v)}>
+                                                            <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Nenhuma" /></SelectTrigger>
+                                                            <SelectContent>{instagramAccounts?.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <div className="border rounded-lg p-4 bg-muted/30">
                         <div className="flex items-center justify-between">
                             <div><Label htmlFor="bulk_multi_adv" className="text-sm">Anunciar com vários anunciantes</Label><p className="text-xs text-muted-foreground">Seu anúncio pode aparecer junto a outros</p></div>
@@ -792,7 +899,7 @@ export default function BulkCreationPage() {
                     <p className="text-xs text-muted-foreground mt-1">Use {"{{creative}}"} para o nome do criativo e {"{{i}}"} para o índice</p>
                 </div>
                 <div className="grid grid-cols-3 gap-4">
-                    <div><Label>Pixel</Label><Select value={adSetConfig.pixel_id} onValueChange={(v) => setAdSetConfig({ ...adSetConfig, pixel_id: v })}><SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent>{pixels?.map((p) => (<SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>))}</SelectContent></Select></div>
+                    <div><Label>Pixel *</Label><Select value={adSetConfig.pixel_id} onValueChange={(v) => setAdSetConfig({ ...adSetConfig, pixel_id: v })}><SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent>{pixels?.map((p) => (<SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>))}</SelectContent></Select></div>
                     <div><Label>Países *</Label><Input value={adSetConfig.countries} onChange={(e) => setAdSetConfig({ ...adSetConfig, countries: e.target.value })} placeholder="BR, US, PT" /></div>
                     <div><Label>Gênero</Label><Select value={adSetConfig.genders} onValueChange={(v) => setAdSetConfig({ ...adSetConfig, genders: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="0">Todos</SelectItem><SelectItem value="1">Masculino</SelectItem><SelectItem value="2">Feminino</SelectItem></SelectContent></Select></div>
                 </div>
