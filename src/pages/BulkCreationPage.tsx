@@ -73,16 +73,16 @@ export default function BulkCreationPage() {
     // ── Shared ad config ──
     const [adConfig, setAdConfig] = useState({
         headline: "", call_to_action: "LEARN_MORE", website_id: "",
-        utm_params: "", enable_multi_advertiser: false, pixel_id: "",
+        utm_params: "", enable_multi_advertiser: false,
     });
 
     // ── Per-account page mapping ──
     const [accountPageMap, setAccountPageMap] = useState<
-        Record<string, { ad_page_id: string; instagram_account_id: string }>
+        Record<string, { ad_page_id: string; instagram_account_id: string; pixel_id: string }>
     >({});
     // ── Per-ad (creative) page mapping ──
     const [adPageMap, setAdPageMap] = useState<
-        Record<string, { ad_page_id: string; instagram_account_id: string }>
+        Record<string, { ad_page_id: string; instagram_account_id: string; pixel_id: string }>
     >({});
 
     const updateAccountPage = (accountId: string, field: string, value: string) => {
@@ -159,7 +159,7 @@ export default function BulkCreationPage() {
     };
 
     const clearTemplate = () => {
-        setAdConfig({ headline: "", call_to_action: "LEARN_MORE", website_id: "", utm_params: "", enable_multi_advertiser: false, pixel_id: "" });
+        setAdConfig({ headline: "", call_to_action: "LEARN_MORE", website_id: "", utm_params: "", enable_multi_advertiser: false });
         setNewCampaignConfig({ name: "Campanha {{i}}", quantity: 1, objective: "OUTCOME_SALES", daily_budget: "20", bid_strategy: "LOWEST_COST_WITHOUT_CAP" });
         setAdSetConfig({ name: "{{creative}} - Conjunto {{i}}", age_min: "18", age_max: "65", genders: "0", countries: "BR", billing_event: "IMPRESSIONS", optimization_goal: "OFFSITE_CONVERSIONS", bid_strategy: "LOWEST_COST_WITHOUT_CAP" });
         setSelectedAccounts([]);
@@ -243,7 +243,7 @@ export default function BulkCreationPage() {
                 const newMap = { ...prevMap };
                 if (!prev.includes(id)) {
                     // Adding account — initialize with empty values
-                    if (!newMap[id]) newMap[id] = { ad_page_id: "", instagram_account_id: "" };
+                    if (!newMap[id]) newMap[id] = { ad_page_id: "", instagram_account_id: "", pixel_id: "" };
                 } else {
                     // Removing account
                     delete newMap[id];
@@ -316,7 +316,7 @@ export default function BulkCreationPage() {
     const submitMutation = useMutation({
         mutationFn: async () => {
             const selectedWebsite = websites?.find((w) => w.id === adConfig.website_id);
-            const selectedPixel = pixels?.find((p) => p.id === adConfig.pixel_id);
+
             const gendersArray = adSetConfig.genders === "0" ? [0] : adSetConfig.genders === "1" ? [1] : [2];
             const countriesArray = adSetConfig.countries.split(",").map((c) => c.trim().toUpperCase()).filter(Boolean);
             const baseUrl = selectedWebsite?.url || "";
@@ -396,15 +396,24 @@ export default function BulkCreationPage() {
                             }).select("id").single();
                         if (adError) throw adError;
 
+                        const resolvedPixel = (() => {
+                            if (!useSamePages) {
+                                const am = adPageMap[file.driveFileId];
+                                return pixels?.find((x) => x.id === am?.pixel_id) || null;
+                            }
+                            const m = accountPageMap[camp.ad_account_id];
+                            return pixels?.find((x) => x.id === m?.pixel_id) || null;
+                        })();
+
                         webhookAdSets.push({
                             adset_index: globalAdSetIndex,
                             adset_id: adSet.id, campaign_id: camp.id, name: setName,
                             age_min: parseInt(adSetConfig.age_min), age_max: parseInt(adSetConfig.age_max),
                             genders: gendersArray, countries: countriesArray,
-                            pixel_id: selectedPixel?.pixel_id || null,
+                            pixel_id: resolvedPixel?.pixel_id || null,
                             billing_event: adSetConfig.billing_event, optimization_goal: adSetConfig.optimization_goal,
                             bid_strategy: adSetConfig.bid_strategy,
-                            promoted_object: selectedPixel ? { pixel_id: selectedPixel.pixel_id, custom_event_type: "PURCHASE" } : undefined,
+                            promoted_object: resolvedPixel ? { pixel_id: resolvedPixel.pixel_id, custom_event_type: "PURCHASE" } : undefined,
                             targeting_automation: { advantage_audience: 1 },
                             ads: [{
                                 ad_index: globalAdIndex,
@@ -520,7 +529,7 @@ export default function BulkCreationPage() {
                                             setAccountPageMap((prev) => {
                                                 const newMap = { ...prev };
                                                 filteredIds.forEach((id) => {
-                                                    if (!newMap[id]) newMap[id] = { ad_page_id: "", instagram_account_id: "" };
+                                                    if (!newMap[id]) newMap[id] = { ad_page_id: "", instagram_account_id: "", pixel_id: "" };
                                                 });
                                                 return newMap;
                                             });
@@ -719,21 +728,15 @@ export default function BulkCreationPage() {
                         </div>
                         <div><Label>UTMs</Label><Input placeholder="utm_source=fb&utm_campaign=promo" value={adConfig.utm_params} onChange={(e) => setAdConfig({ ...adConfig, utm_params: e.target.value })} /></div>
                     </div>
-                    <div>
-                        <Label>Pixel *</Label>
-                        <Select value={adConfig.pixel_id} onValueChange={(v) => setAdConfig({ ...adConfig, pixel_id: v })}>
-                            <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                            <SelectContent>{pixels?.map((p) => (<SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>))}</SelectContent>
-                        </Select>
-                    </div>
+
 
                     {/* Page / Instagram selection */}
                     {selectedAccounts.length > 0 && (
                         <div className="border rounded-lg p-4 space-y-4">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <Label className="text-sm font-medium">📘 Página e Instagram</Label>
-                                    <p className="text-xs text-muted-foreground">Selecione a página e conta Instagram para os anúncios</p>
+                                    <Label className="text-sm font-medium">📘 Página, Instagram e Pixel</Label>
+                                    <p className="text-xs text-muted-foreground">Selecione a página, conta Instagram e pixel para os anúncios</p>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <Label htmlFor="same_pages" className="text-xs text-muted-foreground">Mesma para todas</Label>
@@ -742,7 +745,7 @@ export default function BulkCreationPage() {
                             </div>
 
                             {useSamePages ? (
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-3 gap-4">
                                     <div>
                                         <Label className="text-xs">Página de Anúncio *</Label>
                                         <Select onValueChange={(v) => {
@@ -769,15 +772,28 @@ export default function BulkCreationPage() {
                                             <SelectContent>{instagramAccounts?.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
                                         </Select>
                                     </div>
+                                    <div>
+                                        <Label className="text-xs">Pixel *</Label>
+                                        <Select onValueChange={(v) => {
+                                            setAccountPageMap((prev) => {
+                                                const newMap = { ...prev };
+                                                selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], pixel_id: v }; });
+                                                return newMap;
+                                            });
+                                        }}>
+                                            <SelectTrigger className="h-9"><SelectValue placeholder="Selecionar pixel..." /></SelectTrigger>
+                                            <SelectContent>{pixels?.map((p) => (<SelectItem key={p.id} value={p.id}>🎯 {p.name}</SelectItem>))}</SelectContent>
+                                        </Select>
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="space-y-3">
                                     {selectedFiles.map((file) => {
-                                        const mapping = adPageMap[file.driveFileId] || { ad_page_id: "", instagram_account_id: "" };
+                                        const mapping = adPageMap[file.driveFileId] || { ad_page_id: "", instagram_account_id: "", pixel_id: "" };
                                         return (
                                             <div key={file.driveFileId} className="border rounded-lg p-3 space-y-2">
                                                 <p className="text-xs font-medium">🎨 {file.adName || file.fileName}</p>
-                                                <div className="grid grid-cols-2 gap-3">
+                                                <div className="grid grid-cols-3 gap-3">
                                                     <div>
                                                         <Label className="text-xs">Página *</Label>
                                                         <Select value={mapping.ad_page_id} onValueChange={(v) => updateAdPage(file.driveFileId, "ad_page_id", v)}>
@@ -790,6 +806,13 @@ export default function BulkCreationPage() {
                                                         <Select value={mapping.instagram_account_id} onValueChange={(v) => updateAdPage(file.driveFileId, "instagram_account_id", v)}>
                                                             <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Nenhuma" /></SelectTrigger>
                                                             <SelectContent>{instagramAccounts?.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div>
+                                                        <Label className="text-xs">Pixel *</Label>
+                                                        <Select value={mapping.pixel_id} onValueChange={(v) => updateAdPage(file.driveFileId, "pixel_id", v)}>
+                                                            <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                                                            <SelectContent>{pixels?.map((p) => (<SelectItem key={p.id} value={p.id}>🎯 {p.name}</SelectItem>))}</SelectContent>
                                                         </Select>
                                                     </div>
                                                 </div>
