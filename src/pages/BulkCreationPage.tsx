@@ -72,8 +72,8 @@ export default function BulkCreationPage() {
 
     // ── Shared ad config ──
     const [adConfig, setAdConfig] = useState({
-        headline: "", call_to_action: "SHOP_NOW", website_id: "",
-        utm_params: "", enable_multi_advertiser: false,
+        headline: "", call_to_action: "LEARN_MORE", website_id: "",
+        utm_params: "", enable_multi_advertiser: false, pixel_id: "",
     });
 
     // ── Per-account page mapping ──
@@ -112,7 +112,7 @@ export default function BulkCreationPage() {
     // ── Ad set shared config ──
     const [adSetConfig, setAdSetConfig] = useState({
         name: "{{creative}} - Conjunto {{i}}",
-        age_min: "18", age_max: "65", genders: "0", countries: "BR", pixel_id: "",
+        age_min: "18", age_max: "65", genders: "0", countries: "BR",
         billing_event: "IMPRESSIONS", optimization_goal: "OFFSITE_CONVERSIONS",
         bid_strategy: "LOWEST_COST_WITHOUT_CAP",
     });
@@ -159,9 +159,9 @@ export default function BulkCreationPage() {
     };
 
     const clearTemplate = () => {
-        setAdConfig({ headline: "", call_to_action: "SHOP_NOW", website_id: "", utm_params: "", enable_multi_advertiser: false });
+        setAdConfig({ headline: "", call_to_action: "LEARN_MORE", website_id: "", utm_params: "", enable_multi_advertiser: false, pixel_id: "" });
         setNewCampaignConfig({ name: "Campanha {{i}}", quantity: 1, objective: "OUTCOME_SALES", daily_budget: "20", bid_strategy: "LOWEST_COST_WITHOUT_CAP" });
-        setAdSetConfig({ name: "{{creative}} - Conjunto {{i}}", age_min: "18", age_max: "65", genders: "0", countries: "BR", pixel_id: "", billing_event: "IMPRESSIONS", optimization_goal: "OFFSITE_CONVERSIONS", bid_strategy: "LOWEST_COST_WITHOUT_CAP" });
+        setAdSetConfig({ name: "{{creative}} - Conjunto {{i}}", age_min: "18", age_max: "65", genders: "0", countries: "BR", billing_event: "IMPRESSIONS", optimization_goal: "OFFSITE_CONVERSIONS", bid_strategy: "LOWEST_COST_WITHOUT_CAP" });
         setSelectedAccounts([]);
         setSelectedCampaignIds([]);
         setAccountPageMap({});
@@ -316,7 +316,7 @@ export default function BulkCreationPage() {
     const submitMutation = useMutation({
         mutationFn: async () => {
             const selectedWebsite = websites?.find((w) => w.id === adConfig.website_id);
-            const selectedPixel = pixels?.find((p) => p.id === adSetConfig.pixel_id);
+            const selectedPixel = pixels?.find((p) => p.id === adConfig.pixel_id);
             const gendersArray = adSetConfig.genders === "0" ? [0] : adSetConfig.genders === "1" ? [1] : [2];
             const countriesArray = adSetConfig.countries.split(",").map((c) => c.trim().toUpperCase()).filter(Boolean);
             const baseUrl = selectedWebsite?.url || "";
@@ -719,6 +719,13 @@ export default function BulkCreationPage() {
                         </div>
                         <div><Label>UTMs</Label><Input placeholder="utm_source=fb&utm_campaign=promo" value={adConfig.utm_params} onChange={(e) => setAdConfig({ ...adConfig, utm_params: e.target.value })} /></div>
                     </div>
+                    <div>
+                        <Label>Pixel *</Label>
+                        <Select value={adConfig.pixel_id} onValueChange={(v) => setAdConfig({ ...adConfig, pixel_id: v })}>
+                            <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                            <SelectContent>{pixels?.map((p) => (<SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>))}</SelectContent>
+                        </Select>
+                    </div>
 
                     {/* Page / Instagram selection */}
                     {selectedAccounts.length > 0 && (
@@ -898,8 +905,7 @@ export default function BulkCreationPage() {
                     <Input value={adSetConfig.name} onChange={(e) => setAdSetConfig({ ...adSetConfig, name: e.target.value })} />
                     <p className="text-xs text-muted-foreground mt-1">Use {"{{creative}}"} para o nome do criativo e {"{{i}}"} para o índice</p>
                 </div>
-                <div className="grid grid-cols-3 gap-4">
-                    <div><Label>Pixel *</Label><Select value={adSetConfig.pixel_id} onValueChange={(v) => setAdSetConfig({ ...adSetConfig, pixel_id: v })}><SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent>{pixels?.map((p) => (<SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>))}</SelectContent></Select></div>
+                <div className="grid grid-cols-2 gap-4">
                     <div><Label>Países *</Label><Input value={adSetConfig.countries} onChange={(e) => setAdSetConfig({ ...adSetConfig, countries: e.target.value })} placeholder="BR, US, PT" /></div>
                     <div><Label>Gênero</Label><Select value={adSetConfig.genders} onValueChange={(v) => setAdSetConfig({ ...adSetConfig, genders: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="0">Todos</SelectItem><SelectItem value="1">Masculino</SelectItem><SelectItem value="2">Feminino</SelectItem></SelectContent></Select></div>
                 </div>
