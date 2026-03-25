@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
-    ArrowLeft, ArrowRight, Send, Loader2, ChevronRight,
+    ArrowLeft, ArrowRight, Send, Loader2, ChevronRight, ChevronDown,
     Megaphone, Layers, FileImage, CheckCircle2, XCircle, FolderOpen, Save, FileStack,
+    PanelRightClose, PanelRightOpen, Eye,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
@@ -63,6 +64,9 @@ export default function BulkCreationPage() {
     const [templateDesc, setTemplateDesc] = useState("");
     const [appliedTemplateName, setAppliedTemplateName] = useState<string | null>(null);
     const [useSamePages, setUseSamePages] = useState(true);
+    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [expandedAccounts, setExpandedAccounts] = useState<Record<number, boolean>>({});
+    const [expandedCampaigns, setExpandedCampaigns] = useState<Record<string, boolean>>({});
 
     // ── Drive ──
     const [driveUrl, setDriveUrl] = useState("");
@@ -1062,32 +1066,256 @@ export default function BulkCreationPage() {
 
     const renderCurrentStep = () => { switch (step) { case 0: return renderStep0(); case 1: return renderStep2(); case 2: return renderStep1(); case 3: return renderStep3(); case 4: return renderStep4(); default: return null; } };
 
-    return (
-        <div className="animate-fade-in max-w-4xl mx-auto">
-            <div className="mb-8">
-                <h1 className="text-2xl font-bold">Criação em Massa</h1>
-                <p className="text-muted-foreground">Crie campanhas, conjuntos e anúncios em um único disparo</p>
-            </div>
-            <div className="flex items-center gap-2 mb-8">
-                {STEPS.map((label, i) => (
-                    <div key={label} className="flex items-center gap-2 flex-1">
-                        <button onClick={() => i < step && setStep(i)} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors w-full justify-center ${i === step ? "bg-primary text-primary-foreground" : i < step ? "bg-primary/20 text-primary cursor-pointer hover:bg-primary/30" : "bg-muted text-muted-foreground"}`}>
-                            <span className="w-6 h-6 rounded-full bg-background/20 flex items-center justify-center text-xs">{i < step ? "✓" : i + 1}</span>{label}
-                        </button>
-                        {i < STEPS.length - 1 && <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
+    // ════════════════════════════════════════
+    // Live Preview Sidebar
+    // ════════════════════════════════════════
+    const renderLivePreview = () => {
+        const preview = buildPreview();
+        const hasData = selectedFiles.length > 0 || selectedAccounts.length > 0 || totalCampaigns > 0;
+
+        return (
+            <div className="space-y-4">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <Eye className="w-4 h-4 text-primary" />
+                        <h3 className="font-semibold text-sm">Preview ao Vivo</h3>
                     </div>
-                ))}
-            </div>
-            {renderCurrentStep()}
-            {step < 3 && (
-                <div className="flex justify-between mt-6">
-                    <Button variant="outline" onClick={() => setStep(step - 1)} disabled={step === 0}><ArrowLeft className="w-4 h-4 mr-2" />Voltar</Button>
-                    <div className="flex items-center gap-4">
-                        <span className="text-sm text-muted-foreground">{selectedFiles.length} criativos · {totalCampaigns} campanhas · {totalSets} conjuntos · {totalAds} anúncios</span>
-                        <Button onClick={() => setStep(step + 1)} disabled={!canGoNext()}>Próximo<ArrowRight className="w-4 h-4 ml-2" /></Button>
+                    <button
+                        onClick={() => setSidebarOpen(false)}
+                        className="p-1 rounded hover:bg-muted transition-colors"
+                        title="Fechar preview"
+                    >
+                        <PanelRightClose className="w-4 h-4 text-muted-foreground" />
+                    </button>
+                </div>
+
+                {/* Counters */}
+                <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-lg border bg-card p-2.5 text-center">
+                        <p className="text-lg font-bold">{selectedAccounts.length}</p>
+                        <p className="text-[10px] text-muted-foreground leading-tight">Contas</p>
+                    </div>
+                    <div className="rounded-lg border bg-card p-2.5 text-center">
+                        <Megaphone className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
+                        <p className="text-lg font-bold">{totalCampaigns || <span className="text-muted-foreground">—</span>}</p>
+                        <p className="text-[10px] text-muted-foreground leading-tight">Campanhas</p>
+                    </div>
+                    <div className="rounded-lg border bg-card p-2.5 text-center">
+                        <Layers className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
+                        <p className="text-lg font-bold">
+                            {totalCampaigns > 0 ? totalSets : setsPerCampaign > 0 ? setsPerCampaign : 0}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground leading-tight">
+                            {totalCampaigns > 0 ? "Conjuntos" : setsPerCampaign > 0 ? "Conj./campanha" : "Conjuntos"}
+                        </p>
+                    </div>
+                    <div className="rounded-lg border bg-card p-2.5 text-center">
+                        <FileImage className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
+                        <p className="text-lg font-bold">
+                            {totalCampaigns > 0 ? totalAds : setsPerCampaign > 0 ? setsPerCampaign : 0}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground leading-tight">
+                            {totalCampaigns > 0 ? "Anúncios" : setsPerCampaign > 0 ? "Anún./campanha" : "Anúncios"}
+                        </p>
                     </div>
                 </div>
-            )}
+
+                {/* Divider */}
+                <div className="border-t" />
+
+                {/* Progressive tree */}
+                {!hasData ? (
+                    <div className="text-center py-6 px-2">
+                        <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
+                            <Layers className="w-5 h-5 text-muted-foreground" />
+                        </div>
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                            Selecione contas, criativos e campanhas para ver a estrutura aqui.
+                        </p>
+                    </div>
+                ) : preview.length > 0 ? (
+                    /* Full hierarchy when campaigns exist */
+                    <div className="space-y-3 text-xs font-mono">
+                        {preview.map((account, ai) => {
+                            const isAccExpanded = expandedAccounts[ai] !== false;
+                            return (
+                                <div key={ai} className="rounded-lg border p-2.5">
+                                    <button
+                                        className="flex items-center gap-1.5 w-full text-left"
+                                        onClick={() => setExpandedAccounts(prev => ({ ...prev, [ai]: !isAccExpanded }))}
+                                    >
+                                        <ChevronDown className={`w-3 h-3 shrink-0 transition-transform ${isAccExpanded ? '' : '-rotate-90'}`} />
+                                        <span className="font-bold text-xs truncate">📊 {account.accountName}</span>
+                                    </button>
+                                    {account.pageName && (
+                                        <Badge variant="outline" className="text-[9px] ml-5 mt-1 font-sans">📘 {account.pageName}</Badge>
+                                    )}
+                                    {isAccExpanded && account.campaigns.map((camp, ci) => {
+                                        const campKey = `${ai}-${ci}`;
+                                        const isCampExpanded = expandedCampaigns[campKey] !== false;
+                                        return (
+                                            <div key={ci} className="ml-3 mt-1.5">
+                                                <button
+                                                    className="flex items-center gap-1.5 w-full text-left"
+                                                    onClick={() => setExpandedCampaigns(prev => ({ ...prev, [campKey]: !isCampExpanded }))}
+                                                >
+                                                    <ChevronDown className={`w-3 h-3 shrink-0 transition-transform ${isCampExpanded ? '' : '-rotate-90'}`} />
+                                                    <span className="font-semibold truncate">📂 {camp.name}</span>
+                                                </button>
+                                                <div className="ml-5 mt-0.5">
+                                                    <Badge variant={camp.isExisting ? "secondary" : "default"} className="text-[9px] font-sans">
+                                                        {camp.isExisting ? "Existente" : "Nova"}
+                                                    </Badge>
+                                                </div>
+                                                {isCampExpanded && camp.adSets.map((as_item, asi) => (
+                                                    <div key={asi} className="ml-5 mt-1">
+                                                        <p className="truncate text-muted-foreground">📁 {as_item.name}</p>
+                                                        {as_item.ads.map((ad, adi) => (
+                                                            <p key={adi} className="ml-4 truncate text-muted-foreground/70">📄 {ad.name}</p>
+                                                        ))}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    /* Progressive partial view — before campaigns are configured */
+                    <div className="space-y-3 text-xs font-mono">
+                        {selectedAccounts.length > 0 && selectedAccounts.map((accId, ai) => {
+                            const acc = adAccounts?.find((a) => a.id === accId);
+                            const mapping = accountPageMap[accId];
+                            const page = mapping ? adPages?.find((p) => p.id === mapping.ad_page_id) : null;
+                            const isAccExpanded = expandedAccounts[ai] !== false;
+                            return (
+                                <div key={accId} className="rounded-lg border p-2.5">
+                                    <button
+                                        className="flex items-center gap-1.5 w-full text-left"
+                                        onClick={() => setExpandedAccounts(prev => ({ ...prev, [ai]: !isAccExpanded }))}
+                                    >
+                                        <ChevronDown className={`w-3 h-3 shrink-0 transition-transform ${isAccExpanded ? '' : '-rotate-90'}`} />
+                                        <span className="font-bold text-xs truncate">📊 {acc?.account_name || accId}</span>
+                                    </button>
+                                    {page && (
+                                        <Badge variant="outline" className="text-[9px] ml-5 mt-1 font-sans">📘 {page.name}</Badge>
+                                    )}
+                                    {isAccExpanded && (
+                                        <div className="ml-3 mt-1.5">
+                                            {/* Campaign placeholder */}
+                                            <div className="border border-dashed rounded p-2 mt-1">
+                                                <p className="text-[10px] text-muted-foreground italic text-center">
+                                                    📂 Campanha pendente…
+                                                </p>
+                                                {/* Show ad sets + ads from creatives */}
+                                                {selectedFiles.length > 0 && (
+                                                    <div className="mt-1.5">
+                                                        {selectedFiles.flatMap((file) =>
+                                                            Array.from({ length: file.adSetQty }, (_, si) => (
+                                                                <div key={`${file.driveFileId}-${si}`} className="ml-3 mt-1">
+                                                                    <p className="truncate text-muted-foreground">📁 {resolveName(adSetConfig.name, file.adName, si)}</p>
+                                                                    <p className="ml-4 truncate text-muted-foreground/70">📄 {file.adName}</p>
+                                                                </div>
+                                                            ))
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+
+                        {/* Show creatives without accounts */}
+                        {selectedAccounts.length === 0 && selectedFiles.length > 0 && (
+                            <div className="rounded-lg border border-dashed p-2.5">
+                                <p className="text-[10px] text-muted-foreground font-sans font-medium mb-1.5">📊 Selecione contas de anúncio…</p>
+                                <div className="ml-2">
+                                    {selectedFiles.flatMap((file) =>
+                                        Array.from({ length: file.adSetQty }, (_, si) => (
+                                            <div key={`${file.driveFileId}-${si}`} className="mt-1">
+                                                <p className="truncate text-muted-foreground">📁 {resolveName(adSetConfig.name, file.adName, si)}</p>
+                                                <p className="ml-4 truncate text-muted-foreground/70">📄 {file.adName}</p>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const showSidebar = step < 3;
+
+    return (
+        <div className="animate-fade-in">
+            <div className={`${showSidebar ? 'max-w-6xl' : 'max-w-4xl'} mx-auto`}>
+                <div className="mb-8">
+                    <h1 className="text-2xl font-bold">Criação em Massa</h1>
+                    <p className="text-muted-foreground">Crie campanhas, conjuntos e anúncios em um único disparo</p>
+                </div>
+                <div className="flex items-center gap-2 mb-8">
+                    {STEPS.map((label, i) => (
+                        <div key={label} className="flex items-center gap-2 flex-1">
+                            <button onClick={() => i < step && setStep(i)} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors w-full justify-center ${i === step ? "bg-primary text-primary-foreground" : i < step ? "bg-primary/20 text-primary cursor-pointer hover:bg-primary/30" : "bg-muted text-muted-foreground"}`}>
+                                <span className="w-6 h-6 rounded-full bg-background/20 flex items-center justify-center text-xs">{i < step ? "✓" : i + 1}</span>{label}
+                            </button>
+                            {i < STEPS.length - 1 && <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
+                        </div>
+                    ))}
+                </div>
+
+                {showSidebar ? (
+                    <div className="flex gap-6 items-start">
+                        {/* Main content */}
+                        <div className={`flex-1 min-w-0 ${sidebarOpen ? '' : ''}`}>
+                            {renderCurrentStep()}
+                        </div>
+
+                        {/* Sidebar */}
+                        {sidebarOpen ? (
+                            <div className="w-[320px] shrink-0 sticky top-6">
+                                <div
+                                    className="rounded-xl border bg-card/50 backdrop-blur-sm p-4 shadow-sm"
+                                    style={{ maxHeight: 'calc(100vh - 10rem)', overflowY: 'auto' }}
+                                >
+                                    {renderLivePreview()}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="shrink-0 sticky top-6">
+                                <button
+                                    onClick={() => setSidebarOpen(true)}
+                                    className="flex flex-col items-center gap-2 px-2 py-4 rounded-xl border bg-card/50 backdrop-blur-sm shadow-sm hover:bg-accent transition-colors"
+                                    title="Abrir preview"
+                                >
+                                    <PanelRightOpen className="w-4 h-4 text-primary" />
+                                    <span className="text-[10px] text-muted-foreground writing-mode-vertical" style={{ writingMode: 'vertical-rl' }}>Preview</span>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    renderCurrentStep()
+                )}
+
+                {step < 3 && (
+                    <div className="flex justify-between mt-6">
+                        <Button variant="outline" onClick={() => setStep(step - 1)} disabled={step === 0}><ArrowLeft className="w-4 h-4 mr-2" />Voltar</Button>
+                        <div className="flex items-center gap-4">
+                            <span className="text-sm text-muted-foreground">{selectedFiles.length} criativos · {totalCampaigns} campanhas · {totalSets} conjuntos · {totalAds} anúncios</span>
+                            <Button onClick={() => setStep(step + 1)} disabled={!canGoNext()}>Próximo<ArrowRight className="w-4 h-4 ml-2" /></Button>
+                        </div>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
