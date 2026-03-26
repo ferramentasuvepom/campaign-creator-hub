@@ -34,7 +34,7 @@ const CTA_OPTIONS = [
     { value: "DOWNLOAD", label: "Baixar" },
     { value: "WATCH_MORE", label: "Assistir" },
 ];
-const STEPS = ["Criativos", "Conjuntos", "Campanhas", "Revisão", "Enviado"];
+const STEPS = ["Criativos", "Campanhas", "Conjuntos", "Anúncios", "Revisão", "Enviado"];
 
 interface AdAccount { id: string; account_id: string; account_name: string; business_manager_id: string | null; }
 interface Pixel { id: string; name: string; pixel_id: string; }
@@ -42,7 +42,7 @@ interface AdPage { id: string; page_id: string; name: string; business_manager_i
 interface InstagramAccount { id: string; instagram_actor_id: string; name: string; business_manager_id: string | null; }
 interface Website { id: string; name: string; url: string; }
 interface DriveFile { name: string; id: string; mimeType: string; thumbnailLink: string | null; size: string | null; }
-interface SelectedFile { driveFileId: string; fileName: string; adName: string; adSetQty: number; }
+interface SelectedFile { driveFileId: string; fileName: string; adName: string; }
 interface ExistingCampaign { id: string; name: string; objective: string; status: string; ad_account_id: string; }
 interface BulkTemplate { id: string; name: string; description: string | null; config: any; created_at: string; }
 
@@ -58,6 +58,7 @@ export default function BulkCreationPage() {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const [step, setStep] = useState(0);
+    const [structure, setStructure] = useState({ campaigns: 1, adSets: 1, ads: 1 });
     const [executionId, setExecutionId] = useState<string | null>(null);
     const [showSaveDialog, setShowSaveDialog] = useState(false);
     const [templateName, setTemplateName] = useState("");
@@ -108,7 +109,7 @@ export default function BulkCreationPage() {
     const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
     const [accountSearch, setAccountSearch] = useState("");
     const [newCampaignConfig, setNewCampaignConfig] = useState({
-        name: "Campanha {{i}}", quantity: 1,
+        name: "Campanha {{i}}",
         objective: "OUTCOME_SALES", daily_budget: "20",
         bid_strategy: "LOWEST_COST_WITHOUT_CAP",
     });
@@ -155,16 +156,16 @@ export default function BulkCreationPage() {
         if (c.selected_campaign_ids) setSelectedCampaignIds(c.selected_campaign_ids);
         if (c.account_page_map) setAccountPageMap(c.account_page_map);
         setCreateNewCampaigns(c.create_new_campaigns ?? false);
-        if (c.default_adset_qty && selectedFiles.length > 0) {
-            setSelectedFiles((prev) => prev.map((f) => ({ ...f, adSetQty: c.default_adset_qty })));
-        }
+        if (c.campaign_config?.quantity) setStructure(s => ({ ...s, campaigns: c.campaign_config.quantity }));
+        if (c.default_adset_qty) setStructure(s => ({ ...s, adSets: c.default_adset_qty }));
+        if (c.default_ad_qty) setStructure(s => ({ ...s, ads: c.default_ad_qty }));
         setAppliedTemplateName(tpl.name);
         toast({ title: `Template "${tpl.name}" aplicado` });
     };
 
     const clearTemplate = () => {
         setAdConfig({ headline: "", call_to_action: "LEARN_MORE", website_id: "", utm_params: "", enable_multi_advertiser: false });
-        setNewCampaignConfig({ name: "Campanha {{i}}", quantity: 1, objective: "OUTCOME_SALES", daily_budget: "20", bid_strategy: "LOWEST_COST_WITHOUT_CAP" });
+        setNewCampaignConfig({ name: "Campanha {{i}}", objective: "OUTCOME_SALES", daily_budget: "20", bid_strategy: "LOWEST_COST_WITHOUT_CAP" });
         setAdSetConfig({ name: "{{creative}} - Conjunto {{i}}", age_min: "18", age_max: "65", genders: "0", countries: "BR", billing_event: "IMPRESSIONS", optimization_goal: "OFFSITE_CONVERSIONS", bid_strategy: "LOWEST_COST_WITHOUT_CAP" });
         setSelectedAccounts([]);
         setSelectedCampaignIds([]);
@@ -172,7 +173,7 @@ export default function BulkCreationPage() {
         setAdPageMap({});
         setCreateNewCampaigns(false);
         setAppliedTemplateName(null);
-        setSelectedFiles((prev) => prev.map((f) => ({ ...f, adSetQty: 1 })));
+        setStructure({ campaigns: 1, adSets: 1, ads: 1 });
         toast({ title: "Template desativado", description: "Configurações restauradas para o padrão." });
     };
 
@@ -180,9 +181,10 @@ export default function BulkCreationPage() {
         mutationFn: async () => {
             const config = {
                 ad_config: adConfig,
-                campaign_config: newCampaignConfig,
+                campaign_config: { ...newCampaignConfig, quantity: structure.campaigns },
                 adset_config: adSetConfig,
-                default_adset_qty: selectedFiles.length > 0 ? selectedFiles[0].adSetQty : 1,
+                default_adset_qty: structure.adSets,
+                default_ad_qty: structure.ads,
                 create_new_campaigns: createNewCampaigns,
                 selected_account_ids: selectedAccounts,
                 selected_campaign_ids: selectedCampaignIds,
@@ -222,7 +224,7 @@ export default function BulkCreationPage() {
             const data = await res.json();
             const files: DriveFile[] = data.files || [];
             setDriveFiles(files);
-            setSelectedFiles(files.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, ""), adSetQty: 1 })));
+            setSelectedFiles(files.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, "") })));
             toast({ title: `${files.length} arquivo(s) encontrado(s)` });
         } catch {
             toast({ variant: "destructive", title: "Erro ao carregar", description: "Verifique a URL da pasta." });
@@ -233,7 +235,7 @@ export default function BulkCreationPage() {
     const toggleFile = (file: DriveFile) => {
         setSelectedFiles((prev) => {
             if (prev.find((f) => f.driveFileId === file.id)) return prev.filter((f) => f.driveFileId !== file.id);
-            return [...prev, { driveFileId: file.id, fileName: file.name, adName: file.name.replace(/\.[^/.]+$/, ""), adSetQty: 1 }];
+            return [...prev, { driveFileId: file.id, fileName: file.name, adName: file.name.replace(/\.[^/.]+$/, "") }];
         });
     };
     const updateFile = (id: string, field: keyof SelectedFile, value: any) => {
@@ -260,11 +262,11 @@ export default function BulkCreationPage() {
     const toggleCampaign = (id: string) => setSelectedCampaignIds((prev) => prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]);
 
     // ── Totals ──
-    const newCampaignCount = createNewCampaigns ? newCampaignConfig.quantity * selectedAccounts.length : 0;
+    const newCampaignCount = createNewCampaigns ? structure.campaigns * selectedAccounts.length : 0;
     const totalCampaigns = selectedCampaignIds.length + newCampaignCount;
-    const setsPerCampaign = selectedFiles.reduce((s, f) => s + f.adSetQty, 0);
+    const setsPerCampaign = selectedFiles.length * structure.adSets;
     const totalSets = totalCampaigns * setsPerCampaign;
-    const totalAds = totalSets;
+    const totalAds = totalSets * structure.ads;
 
     const resolveName = (tpl: string, creative: string, i: number) =>
         tpl.replace(/\{\{creative\}\}/g, creative).replace(/\{\{i\}\}/g, String(i + 1));
@@ -276,8 +278,11 @@ export default function BulkCreationPage() {
         const result: AccountPreview[] = [];
 
         const makeAdSets = () => selectedFiles.flatMap((file) =>
-            Array.from({ length: file.adSetQty }, (_, si) => ({
-                name: resolveName(adSetConfig.name, file.adName, si), ads: [{ name: file.adName }],
+            Array.from({ length: structure.adSets }, (_, si) => ({
+                name: resolveName(adSetConfig.name, file.adName, si),
+                ads: Array.from({ length: structure.ads }, (_, ai) => ({
+                    name: structure.ads > 1 ? `${file.adName} - Cópia ${ai+1}` : file.adName
+                }))
             })),
         );
 
@@ -297,7 +302,7 @@ export default function BulkCreationPage() {
 
             // New campaigns
             if (createNewCampaigns) {
-                for (let ci = 0; ci < newCampaignConfig.quantity; ci++) {
+                for (let ci = 0; ci < structure.campaigns; ci++) {
                     campaigns.push({ name: newCampaignConfig.name.replace(/\{\{i\}\}/g, String(ci + 1)), isExisting: false, objective: newCampaignConfig.objective, adSets: makeAdSets() });
                 }
             }
@@ -349,7 +354,7 @@ export default function BulkCreationPage() {
 
             if (createNewCampaigns) {
                 for (const accountId of selectedAccounts) {
-                    for (let ci = 0; ci < newCampaignConfig.quantity; ci++) {
+                    for (let ci = 0; ci < structure.campaigns; ci++) {
                         const campName = newCampaignConfig.name.replace(/\{\{i\}\}/g, String(ci + 1));
                         const { data: campaign, error: campError } = await supabase
                             .from("campaigns").insert({
@@ -377,9 +382,8 @@ export default function BulkCreationPage() {
 
                 for (let fi = 0; fi < selectedFiles.length; fi++) {
                     const file = selectedFiles[fi];
-                    for (let si = 0; si < file.adSetQty; si++) {
+                    for (let si = 0; si < structure.adSets; si++) {
                         globalAdSetIndex++;
-                        globalAdIndex++;
                         const setName = resolveName(adSetConfig.name, file.adName, si);
 
                         const { data: adSet, error: setError } = await supabase
@@ -390,16 +394,7 @@ export default function BulkCreationPage() {
                                 execution_id: currentExecutionId,
                             }).select("id").single();
                         if (setError) throw setError;
-
-                        const { data: ad, error: adError } = await supabase
-                            .from("ads").insert({
-                                ad_set_id: adSet.id, name: file.adName,
-                                headline: adConfig.headline || null, call_to_action: adConfig.call_to_action,
-                                link_url: baseUrl || null, video_drive_url: driveUrl || null,
-                                execution_id: currentExecutionId,
-                            }).select("id").single();
-                        if (adError) throw adError;
-
+                        
                         const resolvedPixel = (() => {
                             if (!useSamePages) {
                                 const am = adPageMap[file.driveFileId];
@@ -408,21 +403,25 @@ export default function BulkCreationPage() {
                             const m = accountPageMap[camp.ad_account_id];
                             return pixels?.find((x) => x.id === m?.pixel_id) || null;
                         })();
-
-                        webhookAdSets.push({
-                            adset_index: globalAdSetIndex,
-                            adset_id: adSet.id, campaign_id: camp.id, name: setName,
-                            age_min: parseInt(adSetConfig.age_min), age_max: parseInt(adSetConfig.age_max),
-                            genders: gendersArray, countries: countriesArray,
-                            pixel_id: resolvedPixel?.pixel_id || null,
-                            billing_event: adSetConfig.billing_event, optimization_goal: adSetConfig.optimization_goal,
-                            bid_strategy: adSetConfig.bid_strategy,
-                            promoted_object: resolvedPixel ? { pixel_id: resolvedPixel.pixel_id, custom_event_type: "PURCHASE" } : undefined,
-                            targeting_automation: { advantage_audience: 1 },
-                            ads: [{
+                        
+                        const localAds = [];
+                        for(let ai = 0; ai < structure.ads; ai++) {
+                            globalAdIndex++;
+                            const currentAdName = structure.ads > 1 ? `${file.adName} - Cópia ${ai+1}` : file.adName;
+                            
+                            const { data: ad, error: adError } = await supabase
+                                .from("ads").insert({
+                                    ad_set_id: adSet.id, name: currentAdName,
+                                    headline: adConfig.headline || null, call_to_action: adConfig.call_to_action,
+                                    link_url: baseUrl || null, video_drive_url: driveUrl || null,
+                                    execution_id: currentExecutionId,
+                                }).select("id").single();
+                            if (adError) throw adError;
+                            
+                            localAds.push({
                                 ad_index: globalAdIndex,
                                 ad_id: ad.id, adset_id: adSet.id, campaign_id: camp.id,
-                                name: file.adName, headline: adConfig.headline || null,
+                                name: currentAdName, headline: adConfig.headline || null,
                                 call_to_action: adConfig.call_to_action,
                                 page_id: (() => {
                                     if (!useSamePages) {
@@ -444,7 +443,20 @@ export default function BulkCreationPage() {
                                 video_drive_url: driveUrl || null, video_file_name: file.fileName,
                                 link_url: baseUrl || null, url_tags: adConfig.utm_params || null,
                                 enable_multi_advertiser: adConfig.enable_multi_advertiser,
-                            }],
+                            });
+                        }
+
+                        webhookAdSets.push({
+                            adset_index: globalAdSetIndex,
+                            adset_id: adSet.id, campaign_id: camp.id, name: setName,
+                            age_min: parseInt(adSetConfig.age_min), age_max: parseInt(adSetConfig.age_max),
+                            genders: gendersArray, countries: countriesArray,
+                            pixel_id: resolvedPixel?.pixel_id || null,
+                            billing_event: adSetConfig.billing_event, optimization_goal: adSetConfig.optimization_goal,
+                            bid_strategy: adSetConfig.bid_strategy,
+                            promoted_object: resolvedPixel ? { pixel_id: resolvedPixel.pixel_id, custom_event_type: "PURCHASE" } : undefined,
+                            targeting_automation: { advantage_audience: 1 },
+                            ads: localAds,
                         });
                     }
                 }
@@ -469,15 +481,16 @@ export default function BulkCreationPage() {
         },
         onSuccess: async () => {
             toast({ title: "Enviado com sucesso!", description: `${totalCampaigns} campanhas, ${totalSets} conjuntos e ${totalAds} anúncios.` });
-            setStep(4);
+            setStep(5);
         },
         onError: (error: any) => toast({ variant: "destructive", title: "Erro ao criar", description: error.message }),
     });
 
     const canGoNext = () => {
-        if (step === 0) return selectedFiles.length > 0 && adConfig.website_id && selectedAccounts.length > 0 && selectedAccounts.every((id) => accountPageMap[id]?.ad_page_id);
-        if (step === 1) return adSetConfig.name && adSetConfig.countries;
-        if (step === 2) return selectedCampaignIds.length > 0 || (createNewCampaigns && newCampaignConfig.name);
+        if (step === 0) return selectedFiles.length > 0;
+        if (step === 1) return selectedAccounts.length > 0 && (selectedCampaignIds.length > 0 || (createNewCampaigns && newCampaignConfig.name)) && structure.adSets > 0;
+        if (step === 2) return adSetConfig.name && adSetConfig.countries;
+        if (step === 3) return adConfig.website_id && selectedAccounts.every((id) => accountPageMap[id]?.ad_page_id);
         return true;
     };
 
@@ -485,6 +498,66 @@ export default function BulkCreationPage() {
     // Step 0: Criativos
     // ════════════════════════════════════════
     const renderStep0 = () => (
+        <div className="space-y-6">
+            <Card>
+                <CardHeader><CardTitle className="text-lg flex items-center gap-2"><FolderOpen className="w-5 h-5" />Criativos do Google Drive</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="flex gap-2">
+                        <div className="flex-1">
+                            <Label>Pasta do Drive *</Label>
+                            <Input placeholder="https://drive.google.com/drive/folders/..." value={driveUrl} onChange={(e) => setDriveUrl(e.target.value)} />
+                        </div>
+                        <div className="flex items-end">
+                            <Button onClick={loadDriveFiles} disabled={!driveUrl || isLoadingDrive}>
+                                {isLoadingDrive ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Carregando...</> : "Carregar"}
+                            </Button>
+                        </div>
+                    </div>
+
+                    {driveFiles.length > 0 && (
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                                <Label className="text-sm font-medium">{driveFiles.length} arquivo(s)</Label>
+                                <Button variant="ghost" size="sm" onClick={() => {
+                                    if (selectedFiles.length === driveFiles.length) setSelectedFiles([]);
+                                    else setSelectedFiles(driveFiles.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, "") })));
+                                }}>
+                                    {selectedFiles.length === driveFiles.length ? "Desmarcar todos" : "Selecionar todos"}
+                                </Button>
+                            </div>
+                            {driveFiles.map((file) => {
+                                const sel = selectedFiles.find((f) => f.driveFileId === file.id);
+                                return (
+                                    <div key={file.id} className={`border rounded-lg p-4 transition-colors ${sel ? "border-primary/40 bg-primary/5" : ""}`}>
+                                        <div className="flex items-start gap-3">
+                                            <Checkbox checked={!!sel} onCheckedChange={() => toggleFile(file)} className="mt-1" />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-medium break-all leading-relaxed">🎬 {file.name}</p>
+                                                {file.size && <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>}
+                                            </div>
+                                        </div>
+                                        {sel && (
+                                            <div className="mt-3 ml-9 space-y-3">
+                                                <div>
+                                                    <Label className="text-xs">Nome do Anúncio</Label>
+                                                    <Input className="h-8 text-sm" value={sel.adName} onChange={(e) => updateFile(file.id, "adName", e.target.value)} />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+        </div>
+    );
+
+    // ════════════════════════════════════════
+    // Step 1: Campanhas
+    // ════════════════════════════════════════
+    const renderStep1 = () => (
         <div className="space-y-6">
             {/* Account selection */}
             <Card>
@@ -561,78 +634,13 @@ export default function BulkCreationPage() {
                                             <label className="text-sm cursor-pointer">{acc.account_name} <span className="text-muted-foreground">({acc.account_id})</span></label>
                                         </div>
                                     ))}
-                                {adAccounts.filter((acc) => {
-                                    const q = accountSearch.toLowerCase();
-                                    return !q || acc.account_name.toLowerCase().includes(q) || acc.account_id.toLowerCase().includes(q);
-                                }).length === 0 && (
-                                        <p className="text-sm text-muted-foreground py-2">Nenhuma conta encontrada para "{accountSearch}"</p>
-                                    )}
                             </div>
                         </>
                     )}
                 </CardContent>
             </Card>
 
-            <Card>
-                <CardHeader><CardTitle className="text-lg flex items-center gap-2"><FolderOpen className="w-5 h-5" />Criativos do Google Drive</CardTitle></CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="flex gap-2">
-                        <div className="flex-1">
-                            <Label>Pasta do Drive *</Label>
-                            <Input placeholder="https://drive.google.com/drive/folders/..." value={driveUrl} onChange={(e) => setDriveUrl(e.target.value)} />
-                        </div>
-                        <div className="flex items-end">
-                            <Button onClick={loadDriveFiles} disabled={!driveUrl || isLoadingDrive}>
-                                {isLoadingDrive ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Carregando...</> : "Carregar"}
-                            </Button>
-                        </div>
-                    </div>
-
-                    {driveFiles.length > 0 && (
-                        <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                                <Label className="text-sm font-medium">{driveFiles.length} arquivo(s)</Label>
-                                <Button variant="ghost" size="sm" onClick={() => {
-                                    if (selectedFiles.length === driveFiles.length) setSelectedFiles([]);
-                                    else setSelectedFiles(driveFiles.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, ""), adSetQty: 1 })));
-                                }}>
-                                    {selectedFiles.length === driveFiles.length ? "Desmarcar todos" : "Selecionar todos"}
-                                </Button>
-                            </div>
-                            {driveFiles.map((file) => {
-                                const sel = selectedFiles.find((f) => f.driveFileId === file.id);
-                                return (
-                                    <div key={file.id} className={`border rounded-lg p-4 transition-colors ${sel ? "border-primary/40 bg-primary/5" : ""}`}>
-                                        <div className="flex items-start gap-3">
-                                            <Checkbox checked={!!sel} onCheckedChange={() => toggleFile(file)} className="mt-1" />
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-medium break-all leading-relaxed">🎬 {file.name}</p>
-                                                {file.size && <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>}
-                                            </div>
-                                        </div>
-                                        {sel && (
-                                            <div className="mt-3 ml-9 space-y-3">
-                                                <div>
-                                                    <Label className="text-xs">Nome do Anúncio</Label>
-                                                    <Input className="h-8 text-sm" value={sel.adName} onChange={(e) => updateFile(file.id, "adName", e.target.value)} />
-                                                </div>
-                                                <div>
-                                                    <Label className="text-xs">Conjuntos por campanha</Label>
-                                                    <Input type="number" min={1} max={50} className="h-8 text-sm w-24" value={sel.adSetQty}
-                                                        onChange={(e) => updateFile(file.id, "adSetQty", Math.max(1, parseInt(e.target.value) || 1))} />
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
-
-            {/* Template selector — after Drive files */}
-            {driveFiles.length > 0 && templates && templates.length > 0 && (
+            {templates && templates.length > 0 && (
                 <Card>
                     <CardHeader>
                         <div className="flex items-center justify-between">
@@ -671,19 +679,6 @@ export default function BulkCreationPage() {
                                             {tpl.description && <p className="text-xs text-muted-foreground mb-2">{tpl.description}</p>}
                                             <div className="flex flex-wrap gap-1.5">
                                                 {obj && <Badge variant="secondary" className="text-xs">{obj.label}</Badge>}
-                                                {tpl.config.create_new_campaigns && (
-                                                    <Badge variant="secondary" className="text-xs">
-                                                        {tpl.config.campaign_config?.quantity || 1} campanha(s) nova(s)
-                                                    </Badge>
-                                                )}
-                                                <Badge variant="secondary" className="text-xs">
-                                                    {tpl.config.default_adset_qty || 1} conjunto(s)/campanha
-                                                </Badge>
-                                                {tpl.config.selected_account_ids?.length > 0 && (
-                                                    <Badge variant="secondary" className="text-xs">
-                                                        {tpl.config.selected_account_ids.length} conta(s)
-                                                    </Badge>
-                                                )}
                                             </div>
                                         </div>
                                         <Button
@@ -710,141 +705,42 @@ export default function BulkCreationPage() {
             )}
 
             <Card>
-                <CardHeader><CardTitle className="text-lg">Configurações do Anúncio</CardTitle></CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div><Label>Título *</Label><Input placeholder="Ex: Oferta Imperdível!" value={adConfig.headline} onChange={(e) => setAdConfig({ ...adConfig, headline: e.target.value })} /></div>
-                        <div>
-                            <Label>Call to Action</Label>
-                            <Select value={adConfig.call_to_action} onValueChange={(v) => setAdConfig({ ...adConfig, call_to_action: v })}>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>{CTA_OPTIONS.map((cta) => (<SelectItem key={cta.value} value={cta.value}>{cta.label}</SelectItem>))}</SelectContent>
-                            </Select>
-                        </div>
+                <CardHeader>
+                    <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg">Estrutura da Criação</CardTitle>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <Label>Site de Destino *</Label>
-                            <Select value={adConfig.website_id} onValueChange={(v) => setAdConfig({ ...adConfig, website_id: v })}>
-                                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                                <SelectContent>{websites?.map((w) => (<SelectItem key={w.id} value={w.id}>{w.name} ({w.url})</SelectItem>))}</SelectContent>
-                            </Select>
-                        </div>
-                        <div><Label>UTMs</Label><Input placeholder="utm_source=fb&utm_campaign=promo" value={adConfig.utm_params} onChange={(e) => setAdConfig({ ...adConfig, utm_params: e.target.value })} /></div>
-                    </div>
-
-
-                    {/* Page / Instagram selection */}
-                    {selectedAccounts.length > 0 && (
-                        <div className="border rounded-lg p-4 space-y-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <Label className="text-sm font-medium">📘 Página, Instagram e Pixel</Label>
-                                    <p className="text-xs text-muted-foreground">Selecione a página, conta Instagram e pixel para os anúncios</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <Label htmlFor="same_pages" className="text-xs text-muted-foreground">Mesma para todas</Label>
-                                    <Switch id="same_pages" checked={useSamePages} onCheckedChange={setUseSamePages} />
-                                </div>
+                    <p className="text-sm text-muted-foreground">Especifique a quantidade separada para a estrutura mestre (ex: {structure.campaigns}x{structure.adSets}x{structure.ads}).</p>
+                </CardHeader>
+                <CardContent>
+                    <div className="flex flex-col md:flex-row items-center gap-6">
+                        <div className="flex-1 grid grid-cols-3 gap-4 w-full">
+                            <div>
+                                <Label>Campanhas</Label>
+                                <Input type="number" min={1} max={50} value={structure.campaigns} disabled={!createNewCampaigns} onChange={(e) => setStructure({ ...structure, campaigns: Math.max(1, parseInt(e.target.value) || 1) })} title={!createNewCampaigns ? "Ative 'Criar Novas Campanhas' abaixo para alterar este número." : ""} />
+                                <p className="text-[10px] text-muted-foreground mt-1 leading-tight">Por conta de anúncio</p>
                             </div>
-
-                            {useSamePages ? (
-                                <div className="grid grid-cols-3 gap-4">
-                                    <div>
-                                        <Label className="text-xs">Página de Anúncio *</Label>
-                                        <Select onValueChange={(v) => {
-                                            setAccountPageMap((prev) => {
-                                                const newMap = { ...prev };
-                                                selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], ad_page_id: v }; });
-                                                return newMap;
-                                            });
-                                        }}>
-                                            <SelectTrigger className="h-9"><SelectValue placeholder="Selecionar página..." /></SelectTrigger>
-                                            <SelectContent>{adPages?.map((p) => (<SelectItem key={p.id} value={p.id}>📘 {p.name}</SelectItem>))}</SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div>
-                                        <Label className="text-xs">Conta Instagram</Label>
-                                        <Select onValueChange={(v) => {
-                                            setAccountPageMap((prev) => {
-                                                const newMap = { ...prev };
-                                                selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], instagram_account_id: v }; });
-                                                return newMap;
-                                            });
-                                        }}>
-                                            <SelectTrigger className="h-9"><SelectValue placeholder="Selecionar Instagram..." /></SelectTrigger>
-                                            <SelectContent>{instagramAccounts?.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div>
-                                        <Label className="text-xs">Pixel *</Label>
-                                        <Select onValueChange={(v) => {
-                                            setAccountPageMap((prev) => {
-                                                const newMap = { ...prev };
-                                                selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], pixel_id: v }; });
-                                                return newMap;
-                                            });
-                                        }}>
-                                            <SelectTrigger className="h-9"><SelectValue placeholder="Selecionar pixel..." /></SelectTrigger>
-                                            <SelectContent>{pixels?.map((p) => (<SelectItem key={p.id} value={p.id}>🎯 {p.name}</SelectItem>))}</SelectContent>
-                                        </Select>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="space-y-3">
-                                    {selectedFiles.map((file) => {
-                                        const mapping = adPageMap[file.driveFileId] || { ad_page_id: "", instagram_account_id: "", pixel_id: "" };
-                                        return (
-                                            <div key={file.driveFileId} className="border rounded-lg p-3 space-y-2">
-                                                <p className="text-xs font-medium">🎨 {file.adName || file.fileName}</p>
-                                                <div className="grid grid-cols-3 gap-3">
-                                                    <div>
-                                                        <Label className="text-xs">Página *</Label>
-                                                        <Select value={mapping.ad_page_id} onValueChange={(v) => updateAdPage(file.driveFileId, "ad_page_id", v)}>
-                                                            <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                                                            <SelectContent>{adPages?.map((p) => (<SelectItem key={p.id} value={p.id}>📘 {p.name}</SelectItem>))}</SelectContent>
-                                                        </Select>
-                                                    </div>
-                                                    <div>
-                                                        <Label className="text-xs">Instagram</Label>
-                                                        <Select value={mapping.instagram_account_id} onValueChange={(v) => updateAdPage(file.driveFileId, "instagram_account_id", v)}>
-                                                            <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Nenhuma" /></SelectTrigger>
-                                                            <SelectContent>{instagramAccounts?.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
-                                                        </Select>
-                                                    </div>
-                                                    <div>
-                                                        <Label className="text-xs">Pixel *</Label>
-                                                        <Select value={mapping.pixel_id} onValueChange={(v) => updateAdPage(file.driveFileId, "pixel_id", v)}>
-                                                            <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                                                            <SelectContent>{pixels?.map((p) => (<SelectItem key={p.id} value={p.id}>🎯 {p.name}</SelectItem>))}</SelectContent>
-                                                        </Select>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
+                            <div>
+                                <Label>Conjuntos</Label>
+                                <Input type="number" min={1} max={50} value={structure.adSets} onChange={(e) => setStructure({ ...structure, adSets: Math.max(1, parseInt(e.target.value) || 1) })} />
+                                <p className="text-[10px] text-muted-foreground mt-1 leading-tight">Para cada criativo</p>
+                            </div>
+                            <div>
+                                <Label>Anúncios</Label>
+                                <Input type="number" min={1} max={50} value={structure.ads} onChange={(e) => setStructure({ ...structure, ads: Math.max(1, parseInt(e.target.value) || 1) })} />
+                                <p className="text-[10px] text-muted-foreground mt-1 leading-tight">Por cada conjunto</p>
+                            </div>
                         </div>
-                    )}
-
-                    <div className="border rounded-lg p-4 bg-muted/30">
-                        <div className="flex items-center justify-between">
-                            <div><Label htmlFor="bulk_multi_adv" className="text-sm">Anunciar com vários anunciantes</Label><p className="text-xs text-muted-foreground">Seu anúncio pode aparecer junto a outros</p></div>
-                            <Switch id="bulk_multi_adv" checked={adConfig.enable_multi_advertiser} onCheckedChange={(checked) => setAdConfig({ ...adConfig, enable_multi_advertiser: checked })} />
+                        <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 text-center min-w-[220px]">
+                            <p className="text-sm font-medium">Sua Estrutura</p>
+                            <p className="text-3xl font-black text-primary mt-1 tracking-tight">
+                                {structure.campaigns}x{structure.adSets}x{structure.ads}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1">Campanhas × Conjuntos × Anúncios</p>
                         </div>
                     </div>
                 </CardContent>
             </Card>
-        </div>
-    );
 
-    // ════════════════════════════════════════
-    // Step 1: Conjuntos
-    // ════════════════════════════════════════
-    const renderStep1 = () => (
-        <div className="space-y-6">
-            {/* Existing campaigns */}
             <Card>
                 <CardHeader><CardTitle className="text-lg">Campanhas Existentes</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
@@ -869,7 +765,6 @@ export default function BulkCreationPage() {
                 </CardContent>
             </Card>
 
-            {/* Create new campaigns */}
             <Card>
                 <CardHeader>
                     <div className="flex items-center justify-between">
@@ -879,17 +774,14 @@ export default function BulkCreationPage() {
                 </CardHeader>
                 {createNewCampaigns && (
                     <CardContent className="space-y-4">
-                        <p className="text-sm text-muted-foreground">As novas campanhas serão criadas nas {selectedAccounts.length} conta(s) selecionada(s) no passo 1.</p>
-                        <div className="grid grid-cols-2 gap-4">
+                        <p className="text-sm text-muted-foreground">A quantidade de campanhas é baseada no cartão de "Estrutura". As novas campanhas serão criadas nas {selectedAccounts.length} conta(s) selecionada(s).</p>
+                        <div className="grid grid-cols-1 gap-4">
                             <div>
                                 <Label>Nome Base *</Label>
                                 <Input value={newCampaignConfig.name} onChange={(e) => setNewCampaignConfig({ ...newCampaignConfig, name: e.target.value })} />
                                 <p className="text-xs text-muted-foreground mt-1">Use {"{{i}}"} para índice</p>
                             </div>
-                            <div>
-                                <Label>Quantidade *</Label>
-                                <Input type="number" min={1} max={50} value={newCampaignConfig.quantity} onChange={(e) => setNewCampaignConfig({ ...newCampaignConfig, quantity: Math.max(1, parseInt(e.target.value) || 1) })} />
-                            </div>
+
                         </div>
                         <div className="grid grid-cols-3 gap-4">
                             <div>
@@ -921,7 +813,7 @@ export default function BulkCreationPage() {
     );
 
     // ════════════════════════════════════════
-    // Step 2: Campanhas
+    // Step 2: Conjuntos
     // ════════════════════════════════════════
     const renderStep2 = () => (
         <div className="space-y-6"><Card>
@@ -950,9 +842,145 @@ export default function BulkCreationPage() {
     );
 
     // ════════════════════════════════════════
-    // Step 3: Revisão
+    // Step 3: Anúncios
     // ════════════════════════════════════════
-    const renderStep3 = () => {
+    const renderStep3 = () => (
+        <div className="space-y-6">
+            <Card>
+                <CardHeader><CardTitle className="text-lg">Configurações do Anúncio</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div><Label>Título *</Label><Input placeholder="Ex: Oferta Imperdível!" value={adConfig.headline} onChange={(e) => setAdConfig({ ...adConfig, headline: e.target.value })} /></div>
+                        <div>
+                            <Label>Call to Action</Label>
+                            <Select value={adConfig.call_to_action} onValueChange={(v) => setAdConfig({ ...adConfig, call_to_action: v })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>{CTA_OPTIONS.map((cta) => (<SelectItem key={cta.value} value={cta.value}>{cta.label}</SelectItem>))}</SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <Label>Site de Destino *</Label>
+                            <Select value={adConfig.website_id} onValueChange={(v) => setAdConfig({ ...adConfig, website_id: v })}>
+                                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                                <SelectContent>{websites?.map((w) => (<SelectItem key={w.id} value={w.id}>{w.name} ({w.url})</SelectItem>))}</SelectContent>
+                            </Select>
+                        </div>
+                        <div><Label>UTMs</Label><Input placeholder="utm_source=fb&utm_campaign=promo" value={adConfig.utm_params} onChange={(e) => setAdConfig({ ...adConfig, utm_params: e.target.value })} /></div>
+                    </div>
+
+                    {selectedAccounts.length > 0 && (
+                        <div className="border rounded-lg p-4 space-y-4 shadow-sm">
+                            <div className="flex items-center justify-between border-b pb-3">
+                                <div>
+                                    <Label className="text-sm font-bold">📘 Página, Instagram e Pixel</Label>
+                                    <p className="text-xs text-muted-foreground mt-0.5">Define onde seus anúncios serão veiculados e rastreados.</p>
+                                </div>
+                                <div className="flex items-center gap-2 bg-muted/50 p-2 rounded-md">
+                                    <Label htmlFor="same_pages" className="text-xs font-medium cursor-pointer">Replicar em todos criativos</Label>
+                                    <Switch id="same_pages" checked={useSamePages} onCheckedChange={setUseSamePages} />
+                                </div>
+                            </div>
+
+                            {useSamePages ? (
+                                <div className="grid grid-cols-3 gap-6 bg-muted/20 p-4 rounded-lg">
+                                    <div>
+                                        <Label className="text-xs font-semibold mb-1.5 block">Página de Anúncio *</Label>
+                                        <Select onValueChange={(v) => {
+                                            setAccountPageMap((prev) => {
+                                                const newMap = { ...prev };
+                                                selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], ad_page_id: v }; });
+                                                return newMap;
+                                            });
+                                        }}>
+                                            <SelectTrigger className="h-10 border-primary/20 hover:border-primary/50 transition-colors"><SelectValue placeholder="Selecionar página..." /></SelectTrigger>
+                                            <SelectContent>{adPages?.map((p) => (<SelectItem key={p.id} value={p.id}>📘 {p.name}</SelectItem>))}</SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div>
+                                        <Label className="text-xs font-semibold mb-1.5 block">Conta Instagram</Label>
+                                        <Select onValueChange={(v) => {
+                                            setAccountPageMap((prev) => {
+                                                const newMap = { ...prev };
+                                                selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], instagram_account_id: v }; });
+                                                return newMap;
+                                            });
+                                        }}>
+                                            <SelectTrigger className="h-10 border-primary/20 hover:border-primary/50 transition-colors"><SelectValue placeholder="Selecionar Instagram..." /></SelectTrigger>
+                                            <SelectContent>{instagramAccounts?.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div>
+                                        <Label className="text-xs font-semibold mb-1.5 block">Pixel *</Label>
+                                        <Select onValueChange={(v) => {
+                                            setAccountPageMap((prev) => {
+                                                const newMap = { ...prev };
+                                                selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], pixel_id: v }; });
+                                                return newMap;
+                                            });
+                                        }}>
+                                            <SelectTrigger className="h-10 border-primary/20 hover:border-primary/50 transition-colors"><SelectValue placeholder="Selecionar pixel..." /></SelectTrigger>
+                                            <SelectContent>{pixels?.map((p) => (<SelectItem key={p.id} value={p.id}>🎯 {p.name}</SelectItem>))}</SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {selectedFiles.map((file) => {
+                                        const mapping = adPageMap[file.driveFileId] || { ad_page_id: "", instagram_account_id: "", pixel_id: "" };
+                                        return (
+                                            <div key={file.driveFileId} className="border rounded-lg p-4 bg-muted/10 transition-all hover:border-primary/30">
+                                                <p className="text-sm font-bold mb-3 flex items-center gap-2">
+                                                    <span className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs">🎨</span>
+                                                    {file.adName || file.fileName}
+                                                </p>
+                                                <div className="grid grid-cols-3 gap-4">
+                                                    <div>
+                                                        <Label className="text-xs text-muted-foreground mb-1 block">Página *</Label>
+                                                        <Select value={mapping.ad_page_id} onValueChange={(v) => updateAdPage(file.driveFileId, "ad_page_id", v)}>
+                                                            <SelectTrigger className="h-9"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                                                            <SelectContent>{adPages?.map((p) => (<SelectItem key={p.id} value={p.id}>📘 {p.name}</SelectItem>))}</SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div>
+                                                        <Label className="text-xs text-muted-foreground mb-1 block">Instagram</Label>
+                                                        <Select value={mapping.instagram_account_id} onValueChange={(v) => updateAdPage(file.driveFileId, "instagram_account_id", v)}>
+                                                            <SelectTrigger className="h-9"><SelectValue placeholder="Nenhuma" /></SelectTrigger>
+                                                            <SelectContent>{instagramAccounts?.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div>
+                                                        <Label className="text-xs text-muted-foreground mb-1 block">Pixel *</Label>
+                                                        <Select value={mapping.pixel_id} onValueChange={(v) => updateAdPage(file.driveFileId, "pixel_id", v)}>
+                                                            <SelectTrigger className="h-9"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                                                            <SelectContent>{pixels?.map((p) => (<SelectItem key={p.id} value={p.id}>🎯 {p.name}</SelectItem>))}</SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    <div className="border rounded-lg p-4 bg-muted/30">
+                        <div className="flex items-center justify-between">
+                            <div><Label htmlFor="bulk_multi_adv" className="text-sm">Anunciar com vários anunciantes</Label><p className="text-xs text-muted-foreground">Seu anúncio pode aparecer junto a outros</p></div>
+                            <Switch id="bulk_multi_adv" checked={adConfig.enable_multi_advertiser} onCheckedChange={(checked) => setAdConfig({ ...adConfig, enable_multi_advertiser: checked })} />
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+        </div>
+    );
+
+    // ════════════════════════════════════════
+    // Step 4: Revisão
+    // ════════════════════════════════════════
+    const renderStep4 = () => {
         const preview = buildPreview();
         return (
             <div className="space-y-6">
@@ -965,7 +993,7 @@ export default function BulkCreationPage() {
 
                 {/* Accounts summary */}
                 <Card>
-                    <CardHeader><CardTitle className="text-lg">Estrutura</CardTitle></CardHeader>
+                    <CardHeader><CardTitle className="text-lg">Estrutura Final</CardTitle></CardHeader>
                     <CardContent>
                         <div className="space-y-4 text-sm font-mono">
                             {preview.map((account, ai) => (
@@ -1032,17 +1060,17 @@ export default function BulkCreationPage() {
     };
 
     // ════════════════════════════════════════
-    // Step 4: Enviado (Summary + Redirect)
+    // Step 5: Enviado (Summary + Redirect)
     // ════════════════════════════════════════
     // Auto-redirect after 4 seconds
     useEffect(() => {
-        if (step === 4) {
+        if (step === 5) {
             const timer = setTimeout(() => navigate("/executions"), 4000);
             return () => clearTimeout(timer);
         }
     }, [step]);
 
-    const renderStep4 = () => (
+    const renderStep5 = () => (
         <div className="space-y-6 text-center py-8">
             <div className="flex justify-center">
                 <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
@@ -1064,7 +1092,8 @@ export default function BulkCreationPage() {
         </div>
     );
 
-    const renderCurrentStep = () => { switch (step) { case 0: return renderStep0(); case 1: return renderStep2(); case 2: return renderStep1(); case 3: return renderStep3(); case 4: return renderStep4(); default: return null; } };
+    const renderCurrentStep = () => { switch (step) { case 0: return renderStep0(); case 1: return renderStep1(); case 2: return renderStep2(); case 3: return renderStep3(); case 4: return renderStep4(); case 5: return renderStep5(); default: return null; } };
+
 
     // ════════════════════════════════════════
     // Live Preview Sidebar
@@ -1214,7 +1243,7 @@ export default function BulkCreationPage() {
                                                 {selectedFiles.length > 0 && (
                                                     <div className="mt-1.5">
                                                         {selectedFiles.flatMap((file) =>
-                                                            Array.from({ length: file.adSetQty }, (_, si) => (
+                                                            Array.from({ length: structure.adSets }, (_, si) => (
                                                                 <div key={`${file.driveFileId}-${si}`} className="ml-3 mt-1">
                                                                     <p className="truncate text-muted-foreground">📁 {resolveName(adSetConfig.name, file.adName, si)}</p>
                                                                     <p className="ml-4 truncate text-muted-foreground/70">📄 {file.adName}</p>
@@ -1236,7 +1265,7 @@ export default function BulkCreationPage() {
                                 <p className="text-[10px] text-muted-foreground font-sans font-medium mb-1.5">📊 Selecione contas de anúncio…</p>
                                 <div className="ml-2">
                                     {selectedFiles.flatMap((file) =>
-                                        Array.from({ length: file.adSetQty }, (_, si) => (
+                                        Array.from({ length: structure.adSets }, (_, si) => (
                                             <div key={`${file.driveFileId}-${si}`} className="mt-1">
                                                 <p className="truncate text-muted-foreground">📁 {resolveName(adSetConfig.name, file.adName, si)}</p>
                                                 <p className="ml-4 truncate text-muted-foreground/70">📄 {file.adName}</p>
@@ -1252,7 +1281,7 @@ export default function BulkCreationPage() {
         );
     };
 
-    const showSidebar = step < 3;
+    const showSidebar = step < 4;
 
     return (
         <div className="animate-fade-in">
@@ -1306,7 +1335,7 @@ export default function BulkCreationPage() {
                     renderCurrentStep()
                 )}
 
-                {step < 3 && (
+                {step < 4 && (
                     <div className="flex justify-between mt-6">
                         <Button variant="outline" onClick={() => setStep(step - 1)} disabled={step === 0}><ArrowLeft className="w-4 h-4 mr-2" />Voltar</Button>
                         <div className="flex items-center gap-4">
