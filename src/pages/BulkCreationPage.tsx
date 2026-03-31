@@ -155,6 +155,8 @@ export default function BulkCreationPage() {
         if (c.selected_account_ids) setSelectedAccounts(c.selected_account_ids);
         if (c.selected_campaign_ids) setSelectedCampaignIds(c.selected_campaign_ids);
         if (c.account_page_map) setAccountPageMap(c.account_page_map);
+        if (c.ad_page_map) setAdPageMap(c.ad_page_map);
+        setUseSamePages(c.use_same_pages ?? true);
         setCreateNewCampaigns(c.create_new_campaigns ?? false);
         if (c.campaign_config?.quantity) setStructure(s => ({ ...s, campaigns: c.campaign_config.quantity }));
         if (c.default_adset_qty) setStructure(s => ({ ...s, adSets: c.default_adset_qty }));
@@ -171,6 +173,7 @@ export default function BulkCreationPage() {
         setSelectedCampaignIds([]);
         setAccountPageMap({});
         setAdPageMap({});
+        setUseSamePages(true);
         setCreateNewCampaigns(false);
         setAppliedTemplateName(null);
         setStructure({ campaigns: 1, adSets: 1, ads: 1 });
@@ -179,16 +182,27 @@ export default function BulkCreationPage() {
 
     const saveTemplateMutation = useMutation({
         mutationFn: async () => {
+            // Extract global page/IG/pixel from the first account's mapping
+            const firstAccountMapping = selectedAccounts.length > 0 ? accountPageMap[selectedAccounts[0]] : null;
             const config = {
-                ad_config: adConfig,
+                ad_config: {
+                    ...adConfig,
+                    ad_page_id: firstAccountMapping?.ad_page_id || "",
+                    instagram_account_id: firstAccountMapping?.instagram_account_id || "",
+                },
                 campaign_config: { ...newCampaignConfig, quantity: structure.campaigns },
-                adset_config: adSetConfig,
+                adset_config: {
+                    ...adSetConfig,
+                    pixel_id: firstAccountMapping?.pixel_id || "",
+                },
                 default_adset_qty: structure.adSets,
                 default_ad_qty: structure.ads,
                 create_new_campaigns: createNewCampaigns,
                 selected_account_ids: selectedAccounts,
                 selected_campaign_ids: selectedCampaignIds,
                 account_page_map: accountPageMap,
+                ad_page_map: adPageMap,
+                use_same_pages: useSamePages,
             };
             const { error } = await supabase.from("bulk_templates").insert({
                 name: templateName, description: templateDesc || null, config,
@@ -887,7 +901,7 @@ export default function BulkCreationPage() {
                                 <div className="grid grid-cols-3 gap-6 bg-muted/20 p-4 rounded-lg">
                                     <div>
                                         <Label className="text-xs font-semibold mb-1.5 block">Página de Anúncio *</Label>
-                                        <Select onValueChange={(v) => {
+                                        <Select value={accountPageMap[selectedAccounts[0]]?.ad_page_id || ""} onValueChange={(v) => {
                                             setAccountPageMap((prev) => {
                                                 const newMap = { ...prev };
                                                 selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], ad_page_id: v }; });
@@ -900,7 +914,7 @@ export default function BulkCreationPage() {
                                     </div>
                                     <div>
                                         <Label className="text-xs font-semibold mb-1.5 block">Conta Instagram</Label>
-                                        <Select onValueChange={(v) => {
+                                        <Select value={accountPageMap[selectedAccounts[0]]?.instagram_account_id || ""} onValueChange={(v) => {
                                             setAccountPageMap((prev) => {
                                                 const newMap = { ...prev };
                                                 selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], instagram_account_id: v }; });
@@ -913,7 +927,7 @@ export default function BulkCreationPage() {
                                     </div>
                                     <div>
                                         <Label className="text-xs font-semibold mb-1.5 block">Pixel *</Label>
-                                        <Select onValueChange={(v) => {
+                                        <Select value={accountPageMap[selectedAccounts[0]]?.pixel_id || ""} onValueChange={(v) => {
                                             setAccountPageMap((prev) => {
                                                 const newMap = { ...prev };
                                                 selectedAccounts.forEach((id) => { newMap[id] = { ...newMap[id], pixel_id: v }; });
