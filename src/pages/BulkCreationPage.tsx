@@ -273,7 +273,13 @@ export default function BulkCreationPage() {
             return next;
         });
     };
-    const toggleCampaign = (id: string) => setSelectedCampaignIds((prev) => prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]);
+    const toggleCampaign = (id: string) => {
+        setSelectedCampaignIds((prev) => {
+            const next = prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id];
+            if (next.length > 0) setCreateNewCampaigns(false);
+            return next;
+        });
+    };
 
     // ── Totals ──
     const newCampaignCount = createNewCampaigns ? structure.campaigns * selectedAccounts.length : 0;
@@ -718,45 +724,13 @@ export default function BulkCreationPage() {
                 </Card>
             )}
 
-            <Card>
+            <Card className={createNewCampaigns ? "opacity-50 pointer-events-none" : ""}>
                 <CardHeader>
                     <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg">Estrutura da Criação</CardTitle>
+                        <CardTitle className="text-lg">Campanhas Existentes</CardTitle>
+                        {createNewCampaigns && <Badge variant="secondary" className="text-xs">Desativado — criando novas campanhas</Badge>}
                     </div>
-                    <p className="text-sm text-muted-foreground">Especifique a quantidade separada para a estrutura mestre (ex: {structure.campaigns}x{structure.adSets}x{structure.ads}).</p>
                 </CardHeader>
-                <CardContent>
-                    <div className="flex flex-col md:flex-row items-center gap-6">
-                        <div className="flex-1 grid grid-cols-3 gap-4 w-full">
-                            <div>
-                                <Label>Campanhas</Label>
-                                <Input type="number" min={1} max={50} value={structure.campaigns} disabled={!createNewCampaigns} onChange={(e) => setStructure({ ...structure, campaigns: Math.max(1, parseInt(e.target.value) || 1) })} title={!createNewCampaigns ? "Ative 'Criar Novas Campanhas' abaixo para alterar este número." : ""} />
-                                <p className="text-[10px] text-muted-foreground mt-1 leading-tight">Por conta de anúncio</p>
-                            </div>
-                            <div>
-                                <Label>Conjuntos</Label>
-                                <Input type="number" min={1} max={50} value={structure.adSets} onChange={(e) => setStructure({ ...structure, adSets: Math.max(1, parseInt(e.target.value) || 1) })} />
-                                <p className="text-[10px] text-muted-foreground mt-1 leading-tight">Para cada criativo</p>
-                            </div>
-                            <div>
-                                <Label>Anúncios</Label>
-                                <Input type="number" min={1} max={50} value={structure.ads} onChange={(e) => setStructure({ ...structure, ads: Math.max(1, parseInt(e.target.value) || 1) })} />
-                                <p className="text-[10px] text-muted-foreground mt-1 leading-tight">Por cada conjunto</p>
-                            </div>
-                        </div>
-                        <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 text-center min-w-[220px]">
-                            <p className="text-sm font-medium">Sua Estrutura</p>
-                            <p className="text-3xl font-black text-primary mt-1 tracking-tight">
-                                {structure.campaigns}x{structure.adSets}x{structure.ads}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1">Campanhas × Conjuntos × Anúncios</p>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-
-            <Card>
-                <CardHeader><CardTitle className="text-lg">Campanhas Existentes</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
                     {(() => {
                         const filtered = existingCampaigns?.filter((c) => selectedAccounts.includes(c.ad_account_id)) || [];
@@ -779,14 +753,17 @@ export default function BulkCreationPage() {
                 </CardContent>
             </Card>
 
-            <Card>
+            <Card className={selectedCampaignIds.length > 0 ? "opacity-50 pointer-events-none" : ""}>
                 <CardHeader>
                     <div className="flex items-center justify-between">
                         <CardTitle className="text-lg">Criar Novas Campanhas</CardTitle>
-                        <Switch checked={createNewCampaigns} onCheckedChange={setCreateNewCampaigns} />
+                        {selectedCampaignIds.length > 0
+                            ? <Badge variant="secondary" className="text-xs">Desativado — campanhas existentes selecionadas</Badge>
+                            : <Switch checked={createNewCampaigns} onCheckedChange={(v) => { setCreateNewCampaigns(v); if (v) setSelectedCampaignIds([]); }} />
+                        }
                     </div>
                 </CardHeader>
-                {createNewCampaigns && (
+                {createNewCampaigns && selectedCampaignIds.length === 0 && (
                     <CardContent className="space-y-4">
                         <p className="text-sm text-muted-foreground">A quantidade de campanhas é baseada no cartão de "Estrutura". As novas campanhas serão criadas nas {selectedAccounts.length} conta(s) selecionada(s).</p>
                         <div className="grid grid-cols-1 gap-4">
@@ -822,6 +799,43 @@ export default function BulkCreationPage() {
                         </div>
                     </CardContent>
                 )}
+            </Card>
+
+            <Card>
+                <CardHeader>
+                    <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg">Estrutura da Criação</CardTitle>
+                    </div>
+                    <p className="text-sm text-muted-foreground">Especifique a quantidade separada para a estrutura mestre (ex: {structure.campaigns}x{structure.adSets}x{structure.ads}).</p>
+                </CardHeader>
+                <CardContent>
+                    <div className="flex flex-col md:flex-row items-center gap-6">
+                        <div className="flex-1 grid grid-cols-3 gap-4 w-full">
+                            <div>
+                                <Label>Campanhas</Label>
+                                <Input type="number" min={1} max={50} value={structure.campaigns} disabled={!createNewCampaigns} onChange={(e) => setStructure({ ...structure, campaigns: Math.max(1, parseInt(e.target.value) || 1) })} title={!createNewCampaigns ? "Ative 'Criar Novas Campanhas' para alterar." : ""} />
+                                <p className="text-[10px] text-muted-foreground mt-1 leading-tight">Por conta de anúncio</p>
+                            </div>
+                            <div>
+                                <Label>Conjuntos</Label>
+                                <Input type="number" min={1} max={50} value={structure.adSets} onChange={(e) => setStructure({ ...structure, adSets: Math.max(1, parseInt(e.target.value) || 1) })} />
+                                <p className="text-[10px] text-muted-foreground mt-1 leading-tight">Para cada criativo</p>
+                            </div>
+                            <div>
+                                <Label>Anúncios</Label>
+                                <Input type="number" min={1} max={50} value={structure.ads} onChange={(e) => setStructure({ ...structure, ads: Math.max(1, parseInt(e.target.value) || 1) })} />
+                                <p className="text-[10px] text-muted-foreground mt-1 leading-tight">Por cada conjunto</p>
+                            </div>
+                        </div>
+                        <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 text-center min-w-[220px]">
+                            <p className="text-sm font-medium">Sua Estrutura</p>
+                            <p className="text-3xl font-black text-primary mt-1 tracking-tight">
+                                {structure.campaigns}x{structure.adSets}x{structure.ads}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1">Campanhas × Conjuntos × Anúncios</p>
+                        </div>
+                    </div>
+                </CardContent>
             </Card>
         </div>
     );
