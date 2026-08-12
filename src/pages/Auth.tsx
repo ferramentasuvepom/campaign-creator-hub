@@ -74,11 +74,6 @@ export default function AuthPage() {
         defaultValues: { email: "", password: "" },
     });
 
-    const signupForm = useForm<z.infer<typeof formSchema>>({
-        resolver: zodResolver(formSchema),
-        defaultValues: { email: "", password: "", fullName: "" },
-    });
-
     const resetForm = useForm<z.infer<typeof resetEmailSchema>>({
         resolver: zodResolver(resetEmailSchema),
         defaultValues: { email: "" },
@@ -103,32 +98,6 @@ export default function AuthPage() {
                 variant: "destructive",
                 title: "Erro ao entrar",
                 description: error.message || "Verifique suas credenciais",
-            });
-        } finally {
-            setIsLoading(false);
-        }
-    }
-
-    async function onSignup(values: z.infer<typeof formSchema>) {
-        setIsLoading(true);
-        try {
-            const { error } = await supabase.auth.signUp({
-                email: values.email,
-                password: values.password,
-                options: {
-                    data: { full_name: values.fullName },
-                },
-            });
-            if (error) throw error;
-            toast({
-                title: "Conta criada com sucesso!",
-                description: "Verifique seu email para confirmar o cadastro.",
-            });
-        } catch (error: any) {
-            toast({
-                variant: "destructive",
-                title: "Erro ao criar conta",
-                description: error.message,
             });
         } finally {
             setIsLoading(false);
@@ -302,10 +271,6 @@ export default function AuthPage() {
                 </CardHeader>
                 <CardContent>
                     <Tabs defaultValue="login" className="w-full">
-                        <TabsList className="grid w-full grid-cols-2 mb-4">
-                            <TabsTrigger value="login">Login</TabsTrigger>
-                            <TabsTrigger value="signup">Cadastro</TabsTrigger>
-                        </TabsList>
 
                         <TabsContent value="login">
                             <Form {...loginForm}>
@@ -348,55 +313,6 @@ export default function AuthPage() {
                                             Esqueci minha senha
                                         </button>
                                     </div>
-                                </form>
-                            </Form>
-                        </TabsContent>
-
-                        <TabsContent value="signup">
-                            <Form {...signupForm}>
-                                <form onSubmit={signupForm.handleSubmit(onSignup)} className="space-y-4">
-                                    <FormField
-                                        control={signupForm.control}
-                                        name="fullName"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Nome Completo</FormLabel>
-                                                <FormControl>
-                                                    <Input placeholder="Nome Sobrenome" {...field} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={signupForm.control}
-                                        name="email"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Email</FormLabel>
-                                                <FormControl>
-                                                    <Input placeholder="seu@email.com" {...field} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={signupForm.control}
-                                        name="password"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Senha</FormLabel>
-                                                <FormControl>
-                                                    <Input type="password" {...field} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <Button type="submit" className="w-full" disabled={isLoading}>
-                                        {isLoading ? "Criando..." : "Cadastrar"}
-                                    </Button>
                                 </form>
                             </Form>
                         </TabsContent>

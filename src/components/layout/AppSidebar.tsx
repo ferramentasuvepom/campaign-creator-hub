@@ -9,6 +9,7 @@ import {
   Megaphone,
   KeyRound,
   Loader2,
+  Users,
 } from "lucide-react";
 import { useState } from "react";
 import { NavLink } from "@/components/NavLink";
@@ -58,8 +59,13 @@ const automationItems = [
   { title: "Execuções", url: "/executions", icon: Activity },
 ];
 
+// So aparece para admin. A protecao de verdade e a RLS + AdminRoute.
+const adminItems = [
+  { title: "Usuários", url: "/users", icon: Users },
+];
+
 export function AppSidebar() {
-  const { user, signOut } = useAuth();
+  const { user, isAdmin, signOut } = useAuth();
   const { toast } = useToast();
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [newPassword, setNewPassword] = useState("");
@@ -145,7 +151,7 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {automationItems.map((item) => (
+              {[...automationItems, ...(isAdmin ? adminItems : [])].map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild>
                     <NavLink

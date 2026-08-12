@@ -9,6 +9,36 @@ export type Json =
 export type Database = {
     facebook_ads_manager: {
         Tables: {
+            app_users: {
+                Row: {
+                    id: string
+                    email: string | null
+                    full_name: string
+                    role: "admin" | "operador"
+                    active: boolean
+                    created_at: string
+                    updated_at: string
+                }
+                Insert: {
+                    id: string
+                    email?: string | null
+                    full_name?: string
+                    role?: "admin" | "operador"
+                    active?: boolean
+                    created_at?: string
+                    updated_at?: string
+                }
+                Update: {
+                    id?: string
+                    email?: string | null
+                    full_name?: string
+                    role?: "admin" | "operador"
+                    active?: boolean
+                    created_at?: string
+                    updated_at?: string
+                }
+                Relationships: []
+            }
             profiles: {
                 Row: {
                     id: number
