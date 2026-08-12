@@ -41,6 +41,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { garantirEscrita } from "@/lib/utils";
 
 interface BusinessManager {
   id: number;
@@ -58,7 +59,7 @@ interface AdAccount {
 }
 
 export default function AdAccountsPage() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -95,12 +96,13 @@ export default function AdAccountsPage() {
 
   const addAccountMutation = useMutation({
     mutationFn: async (account: typeof newAccount) => {
-      const { error } = await supabase.from("ad_accounts").insert({
+      const { data, error } = await supabase.from("ad_accounts").insert({
         account_id: account.account_id,
         account_name: account.account_name,
         business_manager_id: account.business_manager_id ? parseInt(account.business_manager_id) : null,
-      } as any);
+      } as any).select("id");
       if (error) throw error;
+      garantirEscrita(data, "cadastrado");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["ad_accounts"] });
@@ -119,8 +121,10 @@ export default function AdAccountsPage() {
 
   const deleteAccountMutation = useMutation({
     mutationFn: async (id: number) => {
-      const { error } = await supabase.from("ad_accounts").delete().eq("id", id);
+      const { data, error } = await supabase
+        .from("ad_accounts").delete().eq("id", id).select("id");
       if (error) throw error;
+      garantirEscrita(data, "excluído");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["ad_accounts"] });
@@ -135,7 +139,7 @@ export default function AdAccountsPage() {
     },
   });
 
-  const columns = [
+  const baseColumns = [
     { key: "account_name", header: "Nome" },
     { key: "account_id", header: "ID da Conta" },
     {
@@ -189,6 +193,9 @@ export default function AdAccountsPage() {
       ),
     },
   ];
+
+  // A trava real e a RLS; isto evita oferecer uma acao que o banco vai recusar.
+  const columns = isAdmin ? baseColumns : baseColumns.filter((c) => c.key !== "actions");
 
   return (
     <div className="animate-fade-in">

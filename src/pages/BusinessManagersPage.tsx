@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { garantirEscrita } from "@/lib/utils";
 
 interface BusinessManager {
   id: number;
@@ -35,6 +37,7 @@ interface BusinessManager {
 export default function BusinessManagersPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
 
   const { data: businessManagers, isLoading } = useQuery({
     queryKey: ["business_managers"],
@@ -53,8 +56,10 @@ export default function BusinessManagersPage() {
 
   const deleteBMMutation = useMutation({
     mutationFn: async (id: number) => {
-      const { error } = await supabase.from("business_managers").delete().eq("id", id);
+      const { data, error } = await supabase
+        .from("business_managers").delete().eq("id", id).select("id");
       if (error) throw error;
+      garantirEscrita(data, "excluído");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["business_managers"] });
@@ -69,7 +74,7 @@ export default function BusinessManagersPage() {
     },
   });
 
-  const columns = [
+  const baseColumns = [
     { key: "name", header: "Nome" },
     { key: "business_manager_id", header: "BM ID" },
     {
@@ -132,6 +137,9 @@ export default function BusinessManagersPage() {
       ),
     },
   ];
+
+  // A trava real e a RLS; isto evita oferecer uma acao que o banco vai recusar.
+  const columns = isAdmin ? baseColumns : baseColumns.filter((c) => c.key !== "actions");
 
   return (
     <div className="animate-fade-in">
