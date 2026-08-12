@@ -38,6 +38,22 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+// A trava real esta na RLS do banco; isto so evita mostrar a tela a quem
+// nao pode usa-la (e a consulta voltaria vazia de qualquer forma).
+const AdminRoute = ({ children }: { children: React.ReactNode }) => {
+  const { isAdmin, loading } = useAuth();
+
+  if (loading) {
+    return <div className="flex items-center justify-center h-screen">Carregando...</div>;
+  }
+
+  if (!isAdmin) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -66,6 +82,14 @@ const App = () => (
                       <Route path="/ads" element={<AdsPage />} />
                       <Route path="/executions" element={<ExecutionsPage />} />
                       <Route path="/bulk" element={<BulkCreationPage />} />
+                      <Route
+                        path="/users"
+                        element={
+                          <AdminRoute>
+                            <UsersPage />
+                          </AdminRoute>
+                        }
+                      />
                       <Route path="*" element={<NotFound />} />
                     </Routes>
                   </MainLayout>
