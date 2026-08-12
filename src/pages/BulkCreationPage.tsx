@@ -4,7 +4,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import {
     ArrowLeft, ArrowRight, Send, Loader2, ChevronRight, ChevronDown,
     Megaphone, Layers, FileImage, CheckCircle2, XCircle, FolderOpen, Save, FileStack,
-    PanelRightClose, PanelRightOpen, Eye,
+    PanelRightClose, PanelRightOpen, Eye, AlertTriangle,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
@@ -532,6 +532,15 @@ export default function BulkCreationPage() {
                                 {isLoadingDrive ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Carregando...</> : "Carregar"}
                             </Button>
                         </div>
+                    </div>
+
+                    <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                        <p className="text-xs leading-relaxed text-amber-900 dark:text-amber-200">
+                            <span className="font-semibold">A pasta precisa estar com a leitura liberada.</span>{" "}
+                            No Drive: <span className="font-medium">Compartilhar → Acesso geral → Qualquer pessoa com o link → Leitor</span>.
+                            Sem isso a lista vem vazia, ou o vídeo falha no envio depois de a campanha já ter sido criada.
+                        </p>
                     </div>
 
                     {driveFiles.length > 0 && (
