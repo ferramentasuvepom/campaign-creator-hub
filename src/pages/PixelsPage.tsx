@@ -41,6 +41,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { garantirEscrita } from "@/lib/utils";
 
 interface BusinessManager {
     id: string;
@@ -57,7 +58,7 @@ interface Pixel {
 }
 
 export default function PixelsPage() {
-    const { user } = useAuth();
+    const { user, isAdmin } = useAuth();
     const { toast } = useToast();
     const queryClient = useQueryClient();
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -93,12 +94,13 @@ export default function PixelsPage() {
 
     const addPixelMutation = useMutation({
         mutationFn: async (pixel: typeof newPixel) => {
-            const { error } = await supabase.from("pixels").insert({
+            const { data, error } = await supabase.from("pixels").insert({
                 business_manager_id: pixel.business_manager_id,
                 name: pixel.name,
                 pixel_id: pixel.pixel_id,
-            });
+            }).select("id");
             if (error) throw error;
+            garantirEscrita(data, "cadastrado");
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["pixels"] });
@@ -113,8 +115,10 @@ export default function PixelsPage() {
 
     const deletePixelMutation = useMutation({
         mutationFn: async (id: string) => {
-            const { error } = await supabase.from("pixels").delete().eq("id", id);
+            const { data, error } = await supabase
+                .from("pixels").delete().eq("id", id).select("id");
             if (error) throw error;
+            garantirEscrita(data, "excluído");
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["pixels"] });
@@ -122,7 +126,7 @@ export default function PixelsPage() {
         },
     });
 
-    const columns = [
+    const baseColumns = [
         { key: "name", header: "Nome do Pixel" },
         { key: "pixel_id", header: "Pixel ID" },
         {
@@ -169,12 +173,15 @@ export default function PixelsPage() {
         },
     ];
 
+    // A trava real e a RLS; isto evita oferecer uma acao que o banco vai recusar.
+    const columns = isAdmin ? baseColumns : baseColumns.filter((c) => c.key !== "actions");
+
     return (
         <div className="animate-fade-in">
             <PageHeader
                 title="Pixels do Facebook"
                 description="Gerencie os pixels vinculados aos seus Business Managers"
-                action={
+                action={!isAdmin ? undefined : (
                     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                         <DialogTrigger asChild>
                             <Button>
@@ -233,7 +240,7 @@ export default function PixelsPage() {
                             </div>
                         </DialogContent>
                     </Dialog>
-                }
+                )}
             />
 
             {isLoading ? (
