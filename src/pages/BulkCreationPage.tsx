@@ -35,6 +35,9 @@ const CTA_OPTIONS = [
     { value: "WATCH_MORE", label: "Assistir" },
 ];
 const STEPS = ["Criativos", "Campanhas", "Conjuntos", "Anúncios", "Revisão", "Enviado"];
+// Teto por pasta. Leva grande demais estoura o limite de chamadas da Meta e
+// morre no meio, deixando estrutura pela metade — melhor barrar na entrada.
+const MAX_ARQUIVOS_POR_PASTA = 30;
 
 interface AdAccount { id: string; account_id: string; account_name: string; business_manager_id: string | null; currency: string | null; }
 interface Pixel { id: string; name: string; pixel_id: string; }
@@ -78,6 +81,7 @@ export default function BulkCreationPage() {
     const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
     const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
     const [isLoadingDrive, setIsLoadingDrive] = useState(false);
+    const [driveCortado, setDriveCortado] = useState<number | null>(null);
 
     // ── Shared ad config ──
     const [adConfig, setAdConfig] = useState({
@@ -240,11 +244,22 @@ export default function BulkCreationPage() {
                 body: JSON.stringify({ folder_url: driveUrl }),
             });
             const data = await res.json();
-            const files: DriveFile[] = data.files || [];
+            const todos: DriveFile[] = data.files || [];
+            const files = todos.slice(0, MAX_ARQUIVOS_POR_PASTA);
+            setDriveCortado(todos.length > MAX_ARQUIVOS_POR_PASTA ? todos.length : null);
             setDriveFiles(files);
             setSelectedFiles(files.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, "") })));
-            toast({ title: `${files.length} arquivo(s) encontrado(s)` });
+            toast(
+                todos.length > MAX_ARQUIVOS_POR_PASTA
+                    ? {
+                          variant: "destructive",
+                          title: `Pasta com ${todos.length} arquivos — carregamos os ${MAX_ARQUIVOS_POR_PASTA} primeiros`,
+                          description: "Divida a pasta para subir o restante.",
+                      }
+                    : { title: `${files.length} arquivo(s) encontrado(s)` }
+            );
         } catch {
+            setDriveCortado(null);
             toast({ variant: "destructive", title: "Erro ao carregar", description: "Verifique a URL da pasta." });
         }
         setIsLoadingDrive(false);
@@ -602,9 +617,24 @@ export default function BulkCreationPage() {
                         <p className="text-xs leading-relaxed text-amber-900 dark:text-amber-200">
                             <span className="font-semibold">A pasta precisa estar com a leitura liberada.</span>{" "}
                             No Drive: <span className="font-medium">Compartilhar → Acesso geral → Qualquer pessoa com o link → Leitor</span>.
-                            Sem isso a lista vem vazia, ou o vídeo falha no envio depois de a campanha já ter sido criada.
+                            Sem isso a lista vem vazia, ou o vídeo falha no envio depois de a campanha já ter sido criada.{" "}Máximo de <span className="font-semibold">{MAX_ARQUIVOS_POR_PASTA} arquivos por pasta</span>.
                         </p>
                     </div>
+
+                    {driveCortado !== null && (
+                        <div className="flex gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                            <p className="text-xs leading-relaxed text-red-900 dark:text-red-200">
+                                <span className="font-semibold">
+                                    A pasta tem {driveCortado} arquivos e o limite é {MAX_ARQUIVOS_POR_PASTA}.
+                                </span>{" "}
+                                Carregamos só os {MAX_ARQUIVOS_POR_PASTA} primeiros — os demais ficaram de fora.
+                                Divida a pasta e suba o restante numa segunda execução: leva grande demais
+                                estoura o limite de chamadas da Meta e falha no meio, deixando campanha e
+                                conjunto criados sem anúncio.
+                            </p>
+                        </div>
+                    )}
 
                     {driveFiles.length > 0 && (
                         <div className="space-y-3">
