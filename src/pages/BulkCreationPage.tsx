@@ -36,7 +36,7 @@ const CTA_OPTIONS = [
 ];
 const STEPS = ["Criativos", "Campanhas", "Conjuntos", "Anúncios", "Revisão", "Enviado"];
 
-interface AdAccount { id: string; account_id: string; account_name: string; business_manager_id: string | null; }
+interface AdAccount { id: string; account_id: string; account_name: string; business_manager_id: string | null; currency: string | null; }
 interface Pixel { id: string; name: string; pixel_id: string; }
 interface AdPage { id: string; page_id: string; name: string; business_manager_id: string | null; }
 interface InstagramAccount { id: string; instagram_actor_id: string; name: string; business_manager_id: string | null; }
@@ -68,6 +68,10 @@ export default function BulkCreationPage() {
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [expandedAccounts, setExpandedAccounts] = useState<Record<number, boolean>>({});
     const [expandedCampaigns, setExpandedCampaigns] = useState<Record<string, boolean>>({});
+
+    // Paises: o campo de texto continua sendo a fonte da verdade (templates escrevem nele).
+    // Este estado so decide se o seletor esta no modo "Outros".
+    const [paisesLivre, setPaisesLivre] = useState(false);
 
     // ── Drive ──
     const [driveUrl, setDriveUrl] = useState("");
@@ -125,7 +129,7 @@ export default function BulkCreationPage() {
     // ── Queries ──
     const { data: adAccounts } = useQuery({
         queryKey: ["ad_accounts"], queryFn: async () => {
-            const { data, error } = await supabase.from("ad_accounts").select("id, account_id, account_name, business_manager_id").eq("status", "active");
+            const { data, error } = await supabase.from("ad_accounts").select("id, account_id, account_name, business_manager_id, currency").eq("status", "active");
             if (error) throw error; return data as AdAccount[];
         },
     });
@@ -280,6 +284,16 @@ export default function BulkCreationPage() {
             return next;
         });
     };
+
+    // ── Paises e checagem de moeda ──
+    const paisesSel = adSetConfig.countries.split(",").map((c) => c.trim().toUpperCase()).filter(Boolean);
+    const presetPaises = paisesLivre
+        ? "outros"
+        : ({ "BR": "BR", "BR,US": "BR,US", "US": "US" }[[...paisesSel].sort().join(",")] ?? "outros");
+    // Conta em USD mirando so o Brasil dispara a exigencia de anunciante verificado
+    // na Meta e o conjunto falha ao subir (visto na CA02/BM23 em 13/08/2026).
+    const contasUSD = (adAccounts || []).filter((a) => selectedAccounts.includes(a.id) && a.currency === "USD");
+    const faltaUS = contasUSD.length > 0 && !paisesSel.includes("US");
 
     // ── Totals ──
     const newCampaignCount = createNewCampaigns ? structure.campaigns * selectedAccounts.length : 0;
@@ -862,9 +876,48 @@ export default function BulkCreationPage() {
                     <p className="text-xs text-muted-foreground mt-1">Use {"{{creative}}"} para o nome do criativo e {"{{i}}"} para o índice</p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                    <div><Label>Países *</Label><Input value={adSetConfig.countries} onChange={(e) => setAdSetConfig({ ...adSetConfig, countries: e.target.value })} placeholder="BR, US, PT" /></div>
+                    <div>
+                        <Label>Países *</Label>
+                        <Select
+                            value={presetPaises}
+                            onValueChange={(v) => {
+                                if (v === "outros") { setPaisesLivre(true); return; }
+                                setPaisesLivre(false);
+                                setAdSetConfig({ ...adSetConfig, countries: v });
+                            }}
+                        >
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="BR">Brasil</SelectItem>
+                                <SelectItem value="BR,US">Brasil + Estados Unidos</SelectItem>
+                                <SelectItem value="US">Estados Unidos</SelectItem>
+                                <SelectItem value="outros">Outros (digitar)</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        {presetPaises === "outros" && (
+                            <Input
+                                className="mt-2"
+                                value={adSetConfig.countries}
+                                onChange={(e) => setAdSetConfig({ ...adSetConfig, countries: e.target.value })}
+                                placeholder="BR, US, PT"
+                            />
+                        )}
+                    </div>
                     <div><Label>Gênero</Label><Select value={adSetConfig.genders} onValueChange={(v) => setAdSetConfig({ ...adSetConfig, genders: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="0">Todos</SelectItem><SelectItem value="1">Masculino</SelectItem><SelectItem value="2">Feminino</SelectItem></SelectContent></Select></div>
                 </div>
+
+                {faltaUS && (
+                    <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                        <p className="text-xs leading-relaxed text-amber-900 dark:text-amber-200">
+                            <span className="font-semibold">Conta em USD sem os Estados Unidos nas localizações.</span>{" "}
+                            {contasUSD.length === 1 ? contasUSD[0].account_name : `${contasUSD.length} contas selecionadas estão`} em dólar.
+                            Nesse caso a Meta costuma exigir anunciante verificado e o conjunto falha ao subir, com
+                            <span className="font-medium"> "O anunciante está ausente"</span>. Inclua <span className="font-medium">US</span> nas localizações.
+                        </p>
+                    </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
                     <div><Label>Idade Mínima</Label><Input type="number" min={13} max={65} value={adSetConfig.age_min} onChange={(e) => setAdSetConfig({ ...adSetConfig, age_min: e.target.value })} /></div>
                     <div><Label>Idade Máxima</Label><Input type="number" min={13} max={65} value={adSetConfig.age_max} onChange={(e) => setAdSetConfig({ ...adSetConfig, age_max: e.target.value })} /></div>
