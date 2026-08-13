@@ -951,21 +951,24 @@ export default function BulkCreationPage() {
                                 placeholder="BR, US, PT"
                             />
                         )}
+                        <div className="mt-2 flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                            <p className="text-xs leading-relaxed text-amber-900 dark:text-amber-200">
+                                <span className="font-semibold">Conta em dólar precisa dos Estados Unidos aqui.</span>{" "}
+                                Se a conta de anúncio for USD e as localizações tiverem só o Brasil, a Meta exige
+                                anunciante verificado e o conjunto falha ao subir, com{" "}
+                                <span className="font-medium">"O anunciante está ausente"</span>. Use{" "}
+                                <span className="font-medium">Brasil + Estados Unidos</span>.
+                                {faltaUS && (
+                                    <span className="mt-1 block font-semibold">
+                                        É o seu caso agora: {contasUSD.length === 1 ? contasUSD[0].account_name : `${contasUSD.length} contas selecionadas`} em USD, e US não está nas localizações.
+                                    </span>
+                                )}
+                            </p>
+                        </div>
                     </div>
                     <div><Label>Gênero</Label><Select value={adSetConfig.genders} onValueChange={(v) => setAdSetConfig({ ...adSetConfig, genders: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="0">Todos</SelectItem><SelectItem value="1">Masculino</SelectItem><SelectItem value="2">Feminino</SelectItem></SelectContent></Select></div>
                 </div>
-
-                {faltaUS && (
-                    <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                        <p className="text-xs leading-relaxed text-amber-900 dark:text-amber-200">
-                            <span className="font-semibold">Conta em USD sem os Estados Unidos nas localizações.</span>{" "}
-                            {contasUSD.length === 1 ? contasUSD[0].account_name : `${contasUSD.length} contas selecionadas estão`} em dólar.
-                            Nesse caso a Meta costuma exigir anunciante verificado e o conjunto falha ao subir, com
-                            <span className="font-medium"> "O anunciante está ausente"</span>. Inclua <span className="font-medium">US</span> nas localizações.
-                        </p>
-                    </div>
-                )}
 
                 <div className="grid grid-cols-2 gap-4">
                     <div><Label>Idade Mínima</Label><Input type="number" min={13} max={65} value={adSetConfig.age_min} onChange={(e) => setAdSetConfig({ ...adSetConfig, age_min: e.target.value })} /></div>
