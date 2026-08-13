@@ -41,9 +41,11 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 // A trava real esta na RLS do banco; isto so evita mostrar a tela a quem
 // nao pode usa-la (e a consulta voltaria vazia de qualquer forma).
 const AdminRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAdmin, loading } = useAuth();
+  const { isAdmin, loading, roleLoading } = useAuth();
 
-  if (loading) {
+  // Espera o papel: a sessao resolve antes dele, e sem isto o admin seria
+  // redirecionado para "/" no instante entre uma coisa e outra.
+  if (loading || roleLoading) {
     return <div className="flex items-center justify-center h-screen">Carregando...</div>;
   }
 

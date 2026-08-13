@@ -10,6 +10,7 @@ interface AuthContextType {
     role: AppRole | null;
     isAdmin: boolean;
     loading: boolean;
+    roleLoading: boolean;
     signOut: () => Promise<void>;
 }
 
@@ -19,6 +20,7 @@ const AuthContext = createContext<AuthContextType>({
     role: null,
     isAdmin: false,
     loading: true,
+    roleLoading: true,
     signOut: async () => { },
 });
 
@@ -31,45 +33,68 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const [user, setUser] = useState<User | null>(null);
     const [role, setRole] = useState<AppRole | null>(null);
     const [loading, setLoading] = useState(true);
+    const [roleLoading, setRoleLoading] = useState(true);
 
     useEffect(() => {
+        let ativo = true;
+
         // O papel vem da app_users. A RLS deixa cada um ler a propria linha,
         // entao esta consulta funciona com a anon key.
-        const loadRole = async (u: User | null) => {
+        //
+        // NUNCA chamar o supabase de dentro do callback do onAuthStateChange:
+        // o listener segura um lock e a consulta fica esperando esse mesmo lock,
+        // o await nunca resolve e a tela trava em "Carregando...". Por isso o
+        // papel e buscado fora do callback, via setTimeout(0).
+        const carregarPapel = async (u: User | null) => {
             if (!u) {
-                setRole(null);
+                if (ativo) {
+                    setRole(null);
+                    setRoleLoading(false);
+                }
                 return;
             }
-            const { data, error } = await supabase
-                .from("app_users")
-                .select("role, active")
-                .eq("id", u.id)
-                .maybeSingle();
-
-            // Usuario inativo ou sem linha nao recebe papel — a RLS ja o bloqueia
-            // no banco; aqui e so para a interface nao oferecer o que ele nao pode.
-            setRole(error || !data || !(data as any).active ? null : ((data as any).role as AppRole));
+            if (ativo) setRoleLoading(true);
+            try {
+                const { data, error } = await supabase
+                    .from("app_users")
+                    .select("role, active")
+                    .eq("id", u.id)
+                    .maybeSingle();
+                if (!ativo) return;
+                // Usuario inativo ou sem linha nao recebe papel — a RLS ja o bloqueia
+                // no banco; aqui e so para a interface nao oferecer o que ele nao pode.
+                setRole(error || !data || !(data as any).active ? null : ((data as any).role as AppRole));
+            } catch {
+                if (ativo) setRole(null);
+            } finally {
+                if (ativo) setRoleLoading(false);
+            }
         };
 
         // Check active sessions and sets the user
-        supabase.auth.getSession().then(async ({ data: { session } }) => {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            if (!ativo) return;
             setSession(session);
             setUser(session?.user ?? null);
-            await loadRole(session?.user ?? null);
             setLoading(false);
+            setTimeout(() => carregarPapel(session?.user ?? null), 0);
         });
 
         // Listen for changes on auth state (sing in, sign out, etc.)
+        // Callback SINCRONO de proposito — ver o comentario acima.
         const {
             data: { subscription },
-        } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        } = supabase.auth.onAuthStateChange((_event, session) => {
             setSession(session);
             setUser(session?.user ?? null);
-            await loadRole(session?.user ?? null);
             setLoading(false);
+            setTimeout(() => carregarPapel(session?.user ?? null), 0);
         });
 
-        return () => subscription.unsubscribe();
+        return () => {
+            ativo = false;
+            subscription.unsubscribe();
+        };
     }, []);
 
     const signOut = async () => {
@@ -82,6 +107,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         role,
         isAdmin: role === "admin",
         loading,
+        roleLoading,
         signOut,
     };
 
