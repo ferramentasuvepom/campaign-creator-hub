@@ -40,7 +40,7 @@ interface AdAccount { id: string; account_id: string; account_name: string; busi
 interface Pixel { id: string; name: string; pixel_id: string; }
 interface AdPage { id: string; page_id: string; name: string; business_manager_id: string | null; }
 interface InstagramAccount { id: string; instagram_actor_id: string; name: string; business_manager_id: string | null; }
-interface Website { id: string; name: string; url: string; }
+interface Website { id: string; name: string; url: string; business_manager_id: string | null; }
 interface DriveFile { name: string; id: string; mimeType: string; thumbnailLink: string | null; size: string | null; }
 interface SelectedFile { driveFileId: string; fileName: string; adName: string; }
 interface ExistingCampaign { id: string; name: string; objective: string; status: string; ad_account_id: string; }
@@ -142,7 +142,7 @@ export default function BulkCreationPage() {
     const { data: pixels } = useQuery({ queryKey: ["pixels"], queryFn: async () => { const { data, error } = await supabase.from("pixels").select("id, name, pixel_id"); if (error) throw error; return data as Pixel[]; } });
     const { data: adPages } = useQuery({ queryKey: ["ad_pages"], queryFn: async () => { const { data, error } = await supabase.from("ad_pages").select("id, page_id, name, business_manager_id"); if (error) throw error; return data as AdPage[]; } });
     const { data: instagramAccounts } = useQuery({ queryKey: ["instagram_accounts"], queryFn: async () => { const { data, error } = await supabase.from("instagram_accounts").select("id, instagram_actor_id, name, business_manager_id"); if (error) throw error; return data as InstagramAccount[]; } });
-    const { data: websites } = useQuery({ queryKey: ["websites"], queryFn: async () => { const { data, error } = await supabase.from("websites").select("id, name, url"); if (error) throw error; return data as Website[]; } });
+    const { data: websites } = useQuery({ queryKey: ["websites"], queryFn: async () => { const { data, error } = await supabase.from("websites").select("id, name, url, business_manager_id"); if (error) throw error; return data as Website[]; } });
     const { data: templates } = useQuery({
         queryKey: ["bulk_templates"], queryFn: async () => {
             const { data, error } = await supabase.from("bulk_templates").select("*").order("created_at", { ascending: false });
@@ -284,6 +284,55 @@ export default function BulkCreationPage() {
             return next;
         });
     };
+
+    // ── Ativos visiveis: so os da(s) BM(s) das contas escolhidas ──
+    // Sem isso da para montar anuncio com pagina de uma BM e conta de outra,
+    // que a Meta recusa. Varias contas selecionadas => uniao das BMs delas.
+    const bmsSelecionadas = new Set(
+        (adAccounts || [])
+            .filter((a) => selectedAccounts.includes(a.id))
+            .map((a) => String(a.business_manager_id ?? ""))
+            .filter(Boolean)
+    );
+    const daBM = <T extends { business_manager_id: string | null }>(lista: T[] | undefined): T[] =>
+        (lista || []).filter(
+            (x) => bmsSelecionadas.size === 0 || bmsSelecionadas.has(String(x.business_manager_id ?? ""))
+        );
+    const adPagesVisiveis = daBM(adPages);
+    const instagramVisiveis = daBM(instagramAccounts);
+    const websitesVisiveis = daBM(websites);
+
+    // Trocar de conta muda a BM: o que ja estava escolhido pode nao pertencer
+    // mais a ela. Limpa as escolhas que sumiram da lista, senao o anuncio sobe
+    // com pagina/instagram de outra BM e a Meta recusa.
+    useEffect(() => {
+        const paginasOk = new Set(adPagesVisiveis.map((p) => p.id));
+        const instaOk = new Set(instagramVisiveis.map((i) => i.id));
+        const sitesOk = new Set(websitesVisiveis.map((w) => w.id));
+
+        setAdConfig((prev) =>
+            prev.website_id && !sitesOk.has(prev.website_id) ? { ...prev, website_id: "" } : prev
+        );
+
+        const limpa = (mapa: Record<string, { ad_page_id: string; instagram_account_id: string; pixel_id: string }>) => {
+            let mudou = false;
+            const novo = { ...mapa };
+            for (const chave of Object.keys(novo)) {
+                const m = novo[chave];
+                const ad_page_id = m.ad_page_id && !paginasOk.has(m.ad_page_id) ? "" : m.ad_page_id;
+                const instagram_account_id =
+                    m.instagram_account_id && !instaOk.has(m.instagram_account_id) ? "" : m.instagram_account_id;
+                if (ad_page_id !== m.ad_page_id || instagram_account_id !== m.instagram_account_id) {
+                    novo[chave] = { ...m, ad_page_id, instagram_account_id };
+                    mudou = true;
+                }
+            }
+            return mudou ? novo : mapa;   // devolver o mesmo objeto evita re-render em loop
+        };
+        setAccountPageMap(limpa);
+        setAdPageMap(limpa);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedAccounts, adAccounts, adPages, instagramAccounts, websites]);
 
     // ── Paises e checagem de moeda ──
     const paisesSel = adSetConfig.countries.split(",").map((c) => c.trim().toUpperCase()).filter(Boolean);
@@ -954,7 +1003,7 @@ export default function BulkCreationPage() {
                             <Label>Site de Destino *</Label>
                             <Select value={adConfig.website_id} onValueChange={(v) => setAdConfig({ ...adConfig, website_id: v })}>
                                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                                <SelectContent>{websites?.map((w) => (<SelectItem key={w.id} value={w.id}>{w.name} ({w.url})</SelectItem>))}</SelectContent>
+                                <SelectContent>{websitesVisiveis.map((w) => (<SelectItem key={w.id} value={w.id}>{w.name} ({w.url})</SelectItem>))}</SelectContent>
                             </Select>
                         </div>
                         <div><Label>UTMs</Label><Input placeholder="utm_source=fb&utm_campaign=promo" value={adConfig.utm_params} onChange={(e) => setAdConfig({ ...adConfig, utm_params: e.target.value })} /></div>
@@ -973,6 +1022,17 @@ export default function BulkCreationPage() {
                                 </div>
                             </div>
 
+                            {adPagesVisiveis.length === 0 && (
+                                <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                                    <p className="text-xs leading-relaxed text-amber-900 dark:text-amber-200">
+                                        <span className="font-semibold">Nenhuma página vinculada à Business Manager desta conta.</span>{" "}
+                                        Só aparecem aqui páginas, contas do Instagram e sites da mesma BM da conta de anúncio
+                                        selecionada. Cadastre a página em <span className="font-medium">Páginas</span> e vincule-a à BM correta.
+                                    </p>
+                                </div>
+                            )}
+
                             {useSamePages ? (
                                 <div className="grid grid-cols-3 gap-6 bg-muted/20 p-4 rounded-lg">
                                     <div>
@@ -985,7 +1045,7 @@ export default function BulkCreationPage() {
                                             });
                                         }}>
                                             <SelectTrigger className="h-10 border-primary/20 hover:border-primary/50 transition-colors"><SelectValue placeholder="Selecionar página..." /></SelectTrigger>
-                                            <SelectContent>{adPages?.map((p) => (<SelectItem key={p.id} value={p.id}>📘 {p.name}</SelectItem>))}</SelectContent>
+                                            <SelectContent>{adPagesVisiveis.map((p) => (<SelectItem key={p.id} value={p.id}>📘 {p.name}</SelectItem>))}</SelectContent>
                                         </Select>
                                     </div>
                                     <div>
@@ -998,7 +1058,7 @@ export default function BulkCreationPage() {
                                             });
                                         }}>
                                             <SelectTrigger className="h-10 border-primary/20 hover:border-primary/50 transition-colors"><SelectValue placeholder="Selecionar Instagram..." /></SelectTrigger>
-                                            <SelectContent>{instagramAccounts?.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
+                                            <SelectContent>{instagramVisiveis.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
                                         </Select>
                                     </div>
                                     <div>
@@ -1030,14 +1090,14 @@ export default function BulkCreationPage() {
                                                         <Label className="text-xs text-muted-foreground mb-1 block">Página *</Label>
                                                         <Select value={mapping.ad_page_id} onValueChange={(v) => updateAdPage(file.driveFileId, "ad_page_id", v)}>
                                                             <SelectTrigger className="h-9"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                                                            <SelectContent>{adPages?.map((p) => (<SelectItem key={p.id} value={p.id}>📘 {p.name}</SelectItem>))}</SelectContent>
+                                                            <SelectContent>{adPagesVisiveis.map((p) => (<SelectItem key={p.id} value={p.id}>📘 {p.name}</SelectItem>))}</SelectContent>
                                                         </Select>
                                                     </div>
                                                     <div>
                                                         <Label className="text-xs text-muted-foreground mb-1 block">Instagram</Label>
                                                         <Select value={mapping.instagram_account_id} onValueChange={(v) => updateAdPage(file.driveFileId, "instagram_account_id", v)}>
                                                             <SelectTrigger className="h-9"><SelectValue placeholder="Nenhuma" /></SelectTrigger>
-                                                            <SelectContent>{instagramAccounts?.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
+                                                            <SelectContent>{instagramVisiveis.map((i) => (<SelectItem key={i.id} value={i.id}>📸 {i.name}</SelectItem>))}</SelectContent>
                                                         </Select>
                                                     </div>
                                                     <div>
