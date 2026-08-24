@@ -1233,21 +1233,13 @@ export default function BulkCreationPage() {
                     </div>
                     <div className="rounded-lg border bg-card p-2.5 text-center">
                         <Layers className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
-                        <p className="text-lg font-bold">
-                            {totalCampaigns > 0 ? totalSets : setsPerCampaign > 0 ? setsPerCampaign : 0}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground leading-tight">
-                            {totalCampaigns > 0 ? "Conjuntos" : setsPerCampaign > 0 ? "Conj./campanha" : "Conjuntos"}
-                        </p>
+                        <p className="text-lg font-bold">{totalSets || <span className="text-muted-foreground">—</span>}</p>
+                        <p className="text-[10px] text-muted-foreground leading-tight">Conjuntos</p>
                     </div>
                     <div className="rounded-lg border bg-card p-2.5 text-center">
                         <FileImage className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
-                        <p className="text-lg font-bold">
-                            {totalCampaigns > 0 ? totalAds : setsPerCampaign > 0 ? setsPerCampaign : 0}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground leading-tight">
-                            {totalCampaigns > 0 ? "Anúncios" : setsPerCampaign > 0 ? "Anún./campanha" : "Anúncios"}
-                        </p>
+                        <p className="text-lg font-bold">{totalAds || <span className="text-muted-foreground">—</span>}</p>
+                        <p className="text-[10px] text-muted-foreground leading-tight">Anúncios</p>
                     </div>
                 </div>
 
