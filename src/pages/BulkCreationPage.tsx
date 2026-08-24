@@ -48,8 +48,8 @@ interface Advertiser { id: string; name: string; beneficiary: string; payor: str
 interface TreeAd { uid: string; driveFileId: string; name: string; headline: string; call_to_action: string; website_id: string; }
 interface TreeAdSet { uid: string; name: string; ads: TreeAd[]; }
 interface TreeCampaign { uid: string; name: string; ad_account_id: string; objective: string; daily_budget: string; bid_strategy: string; ad_sets: TreeAdSet[]; }
-interface DriveFile { name: string; id: string; mimeType: string; thumbnailLink: string | null; size: string | null; }
-interface SelectedFile { driveFileId: string; fileName: string; adName: string; }
+interface DriveFile { name: string; id: string; mimeType: string; thumbnailLink: string | null; size: string | null; folderId?: string; folderLabel?: string; }
+interface SelectedFile { driveFileId: string; fileName: string; adName: string; folderId?: string; folderLabel?: string; }
 interface ExistingCampaign { id: string; name: string; objective: string; status: string; ad_account_id: string; }
 interface BulkTemplate { id: string; name: string; description: string | null; config: any; created_at: string; }
 
@@ -92,6 +92,8 @@ export default function BulkCreationPage() {
     // ── Árvore de criação (campanhas → conjuntos → anúncios) ──
     const [tree, setTree] = useState<TreeCampaign[]>([]);
     const [galleryAdSet, setGalleryAdSet] = useState<{ campUid: string; setUid: string } | null>(null);
+    const [galleryFolder, setGalleryFolder] = useState<string>("");
+    const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
 
     // ── Shared ad config ──
     const [adConfig, setAdConfig] = useState({
@@ -312,13 +314,18 @@ export default function BulkCreationPage() {
             const todos: DriveFile[] = data.files || [];
             const files = todos.slice(0, MAX_ARQUIVOS_POR_PASTA);
             setDriveCortado(todos.length > MAX_ARQUIVOS_POR_PASTA ? todos.length : null);
+            // Identifica a pasta de origem para marcar cada criativo (rótulo amigável, reusado se já carregada).
+            const folderId = driveUrl.match(/folders\/([\w-]+)/)?.[1] || driveUrl.trim();
+            const apiName = (data.folder_name || data.folderName || data.folder?.name) as string | undefined;
+            const existente = driveFiles.find((f) => f.folderId === folderId);
+            const folderLabel = existente?.folderLabel || apiName || `Pasta ${new Set(driveFiles.map((f) => f.folderId).filter(Boolean)).size + 1}`;
             // Acervo acumulado: junta os arquivos desta pasta aos já carregados (dedup por id).
             const jaVistos = new Set(driveFiles.map((f) => f.id));
-            const novos = files.filter((f) => !jaVistos.has(f.id));
+            const novos = files.filter((f) => !jaVistos.has(f.id)).map((f) => ({ ...f, folderId, folderLabel }));
             setDriveFiles((prev) => [...prev, ...novos]);
             setSelectedFiles((prev) => [
                 ...prev,
-                ...novos.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, "") })),
+                ...novos.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, ""), folderId, folderLabel })),
             ]);
             setDriveUrl("");
             toast(
@@ -340,7 +347,7 @@ export default function BulkCreationPage() {
     const toggleFile = (file: DriveFile) => {
         setSelectedFiles((prev) => {
             if (prev.find((f) => f.driveFileId === file.id)) return prev.filter((f) => f.driveFileId !== file.id);
-            return [...prev, { driveFileId: file.id, fileName: file.name, adName: file.name.replace(/\.[^/.]+$/, "") }];
+            return [...prev, { driveFileId: file.id, fileName: file.name, adName: file.name.replace(/\.[^/.]+$/, ""), folderId: file.folderId, folderLabel: file.folderLabel }];
         });
     };
     const updateFile = (id: string, field: keyof SelectedFile, value: any) => {
@@ -682,33 +689,54 @@ export default function BulkCreationPage() {
                                 <Label className="text-sm font-medium">Acervo — {driveFiles.length} criativo(s)</Label>
                                 <Button variant="ghost" size="sm" onClick={() => {
                                     if (selectedFiles.length === driveFiles.length) setSelectedFiles([]);
-                                    else setSelectedFiles(driveFiles.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, "") })));
+                                    else setSelectedFiles(driveFiles.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, ""), folderId: f.folderId, folderLabel: f.folderLabel })));
                                 }}>
                                     {selectedFiles.length === driveFiles.length ? "Desmarcar todos" : "Selecionar todos"}
                                 </Button>
                             </div>
-                            {driveFiles.map((file) => {
-                                const sel = selectedFiles.find((f) => f.driveFileId === file.id);
-                                return (
-                                    <div key={file.id} className={`border rounded-lg p-4 transition-colors ${sel ? "border-primary/40 bg-primary/5" : ""}`}>
-                                        <div className="flex items-start gap-3">
-                                            <Checkbox checked={!!sel} onCheckedChange={() => toggleFile(file)} className="mt-1" />
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-medium break-all leading-relaxed">🎬 {file.name}</p>
-                                                {file.size && <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>}
-                                            </div>
-                                        </div>
-                                        {sel && (
-                                            <div className="mt-3 ml-9 space-y-3">
-                                                <div>
-                                                    <Label className="text-xs">Nome do Anúncio</Label>
-                                                    <Input className="h-8 text-sm" value={sel.adName} onChange={(e) => updateFile(file.id, "adName", e.target.value)} />
+                            {(() => {
+                                const labels: string[] = [];
+                                driveFiles.forEach((f) => { const l = f.folderLabel || "Pasta"; if (!labels.includes(l)) labels.push(l); });
+                                return labels.map((label) => {
+                                    const arquivos = driveFiles.filter((f) => (f.folderLabel || "Pasta") === label);
+                                    const aberto = openFolders[label] !== false;
+                                    const selNaPasta = arquivos.filter((f) => selectedFiles.some((s) => s.driveFileId === f.id)).length;
+                                    return (
+                                        <div key={label} className="border rounded-lg">
+                                            <button type="button" className="flex items-center gap-2 w-full text-left px-3 py-2" onClick={() => setOpenFolders((p) => ({ ...p, [label]: !aberto }))}>
+                                                <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${aberto ? "" : "-rotate-90"}`} />
+                                                <FolderOpen className="w-4 h-4 text-primary shrink-0" />
+                                                <span className="text-sm font-medium">{label}</span>
+                                                <span className="text-xs text-muted-foreground">— {selNaPasta}/{arquivos.length} selecionado(s)</span>
+                                            </button>
+                                            {aberto && (
+                                                <div className="p-3 pt-0 space-y-2">
+                                                    {arquivos.map((file) => {
+                                                        const sel = selectedFiles.find((f) => f.driveFileId === file.id);
+                                                        return (
+                                                            <div key={file.id} className={`border rounded-lg p-3 transition-colors ${sel ? "border-primary/40 bg-primary/5" : ""}`}>
+                                                                <div className="flex items-start gap-3">
+                                                                    <Checkbox checked={!!sel} onCheckedChange={() => toggleFile(file)} className="mt-1" />
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <p className="text-sm font-medium break-all leading-relaxed">🎬 {file.name}</p>
+                                                                        {file.size && <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>}
+                                                                    </div>
+                                                                </div>
+                                                                {sel && (
+                                                                    <div className="mt-3 ml-9">
+                                                                        <Label className="text-xs">Nome do Anúncio</Label>
+                                                                        <Input className="h-8 text-sm" value={sel.adName} onChange={(e) => updateFile(file.id, "adName", e.target.value)} />
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
                                                 </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
+                                            )}
+                                        </div>
+                                    );
+                                });
+                            })()}
                         </div>
                     )}
                 </CardContent>
@@ -794,24 +822,41 @@ export default function BulkCreationPage() {
                         const set = camp?.ad_sets.find((s) => s.uid === galleryAdSet.setUid);
                         if (!set) return null;
                         if (selectedFiles.length === 0) return <p className="text-sm text-muted-foreground py-4">Acervo vazio — carregue pastas do Drive no passo Criativos.</p>;
+                        const folders: string[] = [];
+                        selectedFiles.forEach((f) => { const l = f.folderLabel || "Pasta"; if (!folders.includes(l)) folders.push(l); });
+                        const visiveis = galleryFolder ? selectedFiles.filter((f) => (f.folderLabel || "Pasta") === galleryFolder) : selectedFiles;
                         return (
-                            <div className="grid grid-cols-3 gap-3 max-h-[60vh] overflow-y-auto py-2">
-                                {selectedFiles.map((f) => {
-                                    const df = driveFiles.find((d) => d.id === f.driveFileId);
-                                    const checked = !!set.ads.find((a) => a.driveFileId === f.driveFileId);
-                                    return (
-                                        <button key={f.driveFileId} type="button" onClick={() => toggleAdInSet(galleryAdSet.campUid, galleryAdSet.setUid, f.driveFileId)}
-                                            className={`text-left border rounded-lg overflow-hidden transition-all ${checked ? "border-primary ring-2 ring-primary/40" : "hover:border-primary/40"}`}>
-                                            <div className="aspect-video bg-muted flex items-center justify-center overflow-hidden">
-                                                {df?.thumbnailLink ? <img src={df.thumbnailLink} alt={f.fileName} className="w-full h-full object-cover" /> : <FileImage className="w-8 h-8 text-muted-foreground" />}
-                                            </div>
-                                            <div className="p-2 flex items-center gap-2">
-                                                <Checkbox checked={checked} className="pointer-events-none" />
-                                                <span className="text-xs truncate">{f.adName || f.fileName}</span>
-                                            </div>
-                                        </button>
-                                    );
-                                })}
+                            <div className="space-y-3">
+                                {folders.length > 1 && (
+                                    <Select value={galleryFolder || "__all"} onValueChange={(v) => setGalleryFolder(v === "__all" ? "" : v)}>
+                                        <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="__all">Todas as pastas ({selectedFiles.length})</SelectItem>
+                                            {folders.map((l) => (<SelectItem key={l} value={l}>{l} ({selectedFiles.filter((f) => (f.folderLabel || "Pasta") === l).length})</SelectItem>))}
+                                        </SelectContent>
+                                    </Select>
+                                )}
+                                <div className="grid grid-cols-3 gap-3 max-h-[55vh] overflow-y-auto py-1">
+                                    {visiveis.map((f) => {
+                                        const df = driveFiles.find((d) => d.id === f.driveFileId);
+                                        const checked = !!set.ads.find((a) => a.driveFileId === f.driveFileId);
+                                        return (
+                                            <button key={f.driveFileId} type="button" onClick={() => toggleAdInSet(galleryAdSet.campUid, galleryAdSet.setUid, f.driveFileId)}
+                                                className={`text-left border rounded-lg overflow-hidden transition-all ${checked ? "border-primary ring-2 ring-primary/40" : "hover:border-primary/40"}`}>
+                                                <div className="aspect-video bg-muted flex items-center justify-center overflow-hidden">
+                                                    {df?.thumbnailLink ? <img src={df.thumbnailLink} alt={f.fileName} className="w-full h-full object-cover" /> : <FileImage className="w-8 h-8 text-muted-foreground" />}
+                                                </div>
+                                                <div className="p-2 space-y-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <Checkbox checked={checked} className="pointer-events-none" />
+                                                        <span className="text-xs truncate">{f.adName || f.fileName}</span>
+                                                    </div>
+                                                    <Badge variant="outline" className="text-[9px]">📁 {f.folderLabel || "Pasta"}</Badge>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                             </div>
                         );
                     })()}
