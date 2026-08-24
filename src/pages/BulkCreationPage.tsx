@@ -4,7 +4,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import {
     ArrowLeft, ArrowRight, Send, Loader2, ChevronRight, ChevronDown,
     Megaphone, Layers, FileImage, CheckCircle2, XCircle, FolderOpen, Save, FileStack,
-    PanelRightClose, PanelRightOpen, Eye, AlertTriangle,
+    PanelRightClose, PanelRightOpen, Eye, AlertTriangle, Plus,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
@@ -44,6 +44,7 @@ interface Pixel { id: string; name: string; pixel_id: string; }
 interface AdPage { id: string; page_id: string; name: string; business_manager_id: string | null; }
 interface InstagramAccount { id: string; instagram_actor_id: string; name: string; business_manager_id: string | null; }
 interface Website { id: string; name: string; url: string; business_manager_id: string | null; }
+interface Advertiser { id: string; name: string; beneficiary: string; payor: string | null; business_manager_id: string | null; }
 interface DriveFile { name: string; id: string; mimeType: string; thumbnailLink: string | null; size: string | null; }
 interface SelectedFile { driveFileId: string; fileName: string; adName: string; }
 interface ExistingCampaign { id: string; name: string; objective: string; status: string; ad_account_id: string; }
@@ -64,6 +65,8 @@ export default function BulkCreationPage() {
     const [structure, setStructure] = useState({ campaigns: 1, adSets: 1, ads: 1 });
     const [executionId, setExecutionId] = useState<string | null>(null);
     const [showSaveDialog, setShowSaveDialog] = useState(false);
+    const [showAdvDialog, setShowAdvDialog] = useState(false);
+    const [advForm, setAdvForm] = useState({ business_manager_id: "", name: "", beneficiary: "", payor: "" });
     const [templateName, setTemplateName] = useState("");
     const [templateDesc, setTemplateDesc] = useState("");
     const [appliedTemplateName, setAppliedTemplateName] = useState<string | null>(null);
@@ -128,6 +131,7 @@ export default function BulkCreationPage() {
         age_min: "18", age_max: "65", genders: "0", countries: "BR",
         billing_event: "IMPRESSIONS", optimization_goal: "OFFSITE_CONVERSIONS",
         bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+        dsa_advertiser_id: "",
     });
 
     // ── Queries ──
@@ -147,6 +151,27 @@ export default function BulkCreationPage() {
     const { data: adPages } = useQuery({ queryKey: ["ad_pages"], queryFn: async () => { const { data, error } = await supabase.from("ad_pages").select("id, page_id, name, business_manager_id"); if (error) throw error; return data as AdPage[]; } });
     const { data: instagramAccounts } = useQuery({ queryKey: ["instagram_accounts"], queryFn: async () => { const { data, error } = await supabase.from("instagram_accounts").select("id, instagram_actor_id, name, business_manager_id"); if (error) throw error; return data as InstagramAccount[]; } });
     const { data: websites } = useQuery({ queryKey: ["websites"], queryFn: async () => { const { data, error } = await supabase.from("websites").select("id, name, url, business_manager_id"); if (error) throw error; return data as Website[]; } });
+    const { data: advertisers } = useQuery({ queryKey: ["advertisers"], queryFn: async () => { const { data, error } = await supabase.from("advertisers").select("id, name, beneficiary, payor, business_manager_id"); if (error) throw error; return data as Advertiser[]; } });
+    const { data: businessManagers } = useQuery({ queryKey: ["business_managers"], queryFn: async () => { const { data, error } = await supabase.from("business_managers").select("id, name"); if (error) throw error; return data as { id: string; name: string }[]; } });
+    const createAdvertiserMutation = useMutation({
+        mutationFn: async () => {
+            const { data, error } = await supabase.from("advertisers").insert({
+                business_manager_id: advForm.business_manager_id ? Number(advForm.business_manager_id) : null,
+                name: advForm.name.trim(),
+                beneficiary: advForm.beneficiary.trim(),
+                payor: advForm.payor.trim() || null,
+            }).select("id").single();
+            if (error) throw error;
+            return data;
+        },
+        onSuccess: (data: any) => {
+            toast({ title: "Anunciante cadastrado!" });
+            queryClient.invalidateQueries({ queryKey: ["advertisers"] });
+            if (data?.id) setAdSetConfig((prev) => ({ ...prev, dsa_advertiser_id: String(data.id) }));
+            setShowAdvDialog(false);
+        },
+        onError: (e: any) => toast({ title: "Erro ao cadastrar anunciante", description: e.message, variant: "destructive" }),
+    });
     const { data: templates } = useQuery({
         queryKey: ["bulk_templates"], queryFn: async () => {
             const { data, error } = await supabase.from("bulk_templates").select("*").order("created_at", { ascending: false });
@@ -159,7 +184,7 @@ export default function BulkCreationPage() {
         const c = tpl.config;
         if (c.ad_config) setAdConfig(c.ad_config);
         if (c.campaign_config) setNewCampaignConfig(c.campaign_config);
-        if (c.adset_config) setAdSetConfig(c.adset_config);
+        if (c.adset_config) setAdSetConfig(prev => ({ ...prev, ...c.adset_config }));
         if (c.selected_account_ids) setSelectedAccounts(c.selected_account_ids);
         if (c.selected_campaign_ids) setSelectedCampaignIds(c.selected_campaign_ids);
         if (c.account_page_map) setAccountPageMap(c.account_page_map);
@@ -176,7 +201,7 @@ export default function BulkCreationPage() {
     const clearTemplate = () => {
         setAdConfig({ headline: "", call_to_action: "LEARN_MORE", website_id: "", utm_params: "", enable_multi_advertiser: false });
         setNewCampaignConfig({ name: "Campanha {{i}}", objective: "OUTCOME_SALES", daily_budget: "20", bid_strategy: "LOWEST_COST_WITHOUT_CAP" });
-        setAdSetConfig({ name: "{{creative}} - Conjunto {{i}}", age_min: "18", age_max: "65", genders: "0", countries: "BR", billing_event: "IMPRESSIONS", optimization_goal: "OFFSITE_CONVERSIONS", bid_strategy: "LOWEST_COST_WITHOUT_CAP" });
+        setAdSetConfig({ name: "{{creative}} - Conjunto {{i}}", age_min: "18", age_max: "65", genders: "0", countries: "BR", billing_event: "IMPRESSIONS", optimization_goal: "OFFSITE_CONVERSIONS", bid_strategy: "LOWEST_COST_WITHOUT_CAP", dsa_advertiser_id: "" });
         setSelectedAccounts([]);
         setSelectedCampaignIds([]);
         setAccountPageMap({});
@@ -316,6 +341,7 @@ export default function BulkCreationPage() {
     const adPagesVisiveis = daBM(adPages);
     const instagramVisiveis = daBM(instagramAccounts);
     const websitesVisiveis = daBM(websites);
+    const advertisersVisiveis = daBM(advertisers);
 
     // Trocar de conta muda a BM: o que ja estava escolhido pode nao pertencer
     // mais a ela. Limpa as escolhas que sumiram da lista, senao o anuncio sobe
@@ -483,12 +509,18 @@ export default function BulkCreationPage() {
                     for (let si = 0; si < structure.adSets; si++) {
                         globalAdSetIndex++;
                         const setName = resolveName(adSetConfig.name, file.adName, si);
+                        const dsaAdv = advertisers?.find((a) => String(a.id) === String(adSetConfig.dsa_advertiser_id));
+                        const dsaBeneficiary = dsaAdv?.beneficiary?.trim() || null;
+                        const dsaPayor = dsaAdv?.payor?.trim() || dsaBeneficiary;
 
                         const { data: adSet, error: setError } = await supabase
                             .from("ad_sets").insert({
                                 campaign_id: camp.id, name: setName,
                                 age_min: parseInt(adSetConfig.age_min), age_max: parseInt(adSetConfig.age_max),
                                 genders: gendersArray, targeting_countries: countriesArray,
+                                dsa_advertiser_id: adSetConfig.dsa_advertiser_id ? Number(adSetConfig.dsa_advertiser_id) : null,
+                                dsa_beneficiary: dsaBeneficiary,
+                                dsa_payor: dsaPayor,
                                 execution_id: currentExecutionId,
                             }).select("id").single();
                         if (setError) throw setError;
@@ -554,6 +586,8 @@ export default function BulkCreationPage() {
                             bid_strategy: adSetConfig.bid_strategy,
                             promoted_object: resolvedPixel ? { pixel_id: resolvedPixel.pixel_id, custom_event_type: "PURCHASE" } : undefined,
                             targeting_automation: { advantage_audience: 1 },
+                            dsa_beneficiary: dsaBeneficiary,
+                            dsa_payor: dsaPayor,
                             ads: localAds,
                         });
                     }
@@ -1009,8 +1043,44 @@ export default function BulkCreationPage() {
                     <div><Label>Optimization Goal</Label><Select value={adSetConfig.optimization_goal} onValueChange={(v) => setAdSetConfig({ ...adSetConfig, optimization_goal: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="OFFSITE_CONVERSIONS">Conversões</SelectItem><SelectItem value="LINK_CLICKS">Cliques no Link</SelectItem><SelectItem value="LANDING_PAGE_VIEWS">Visualizações da Página</SelectItem></SelectContent></Select></div>
                     <div><Label>Bid Strategy</Label><Select value={adSetConfig.bid_strategy} onValueChange={(v) => setAdSetConfig({ ...adSetConfig, bid_strategy: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="LOWEST_COST_WITHOUT_CAP">Menor Custo</SelectItem><SelectItem value="COST_CAP">Custo Alvo</SelectItem></SelectContent></Select></div>
                 </div>
+                <div>
+                    <Label>Anunciante (transparência do anúncio)</Label>
+                    <div className="flex gap-2">
+                        <Select value={adSetConfig.dsa_advertiser_id} onValueChange={(v) => setAdSetConfig({ ...adSetConfig, dsa_advertiser_id: v })}>
+                            <SelectTrigger className="flex-1"><SelectValue placeholder={advertisersVisiveis.length ? "Selecionar anunciante..." : "Nenhum anunciante cadastrado para esta BM"} /></SelectTrigger>
+                            <SelectContent>{advertisersVisiveis.map((a) => (<SelectItem key={a.id} value={a.id}>🏢 {a.name}</SelectItem>))}</SelectContent>
+                        </Select>
+                        <Button type="button" variant="outline" size="icon" title="Cadastrar anunciante" onClick={() => { setAdvForm({ business_manager_id: bmsSelecionadas.size === 1 ? [...bmsSelecionadas][0] : "", name: "", beneficiary: "", payor: "" }); setShowAdvDialog(true); }}><Plus className="w-4 h-4" /></Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">Beneficiário/pagador exibido na transparência. Resolve "O anunciante está ausente" em conta USD mirando só o Brasil.</p>
+                </div>
             </CardContent>
-        </Card></div>
+        </Card>
+
+                <Dialog open={showAdvDialog} onOpenChange={setShowAdvDialog}>
+                    <DialogContent>
+                        <DialogHeader><DialogTitle>Cadastrar anunciante</DialogTitle></DialogHeader>
+                        <div className="space-y-4 py-2">
+                            <div>
+                                <Label>Portfólio (BM) *</Label>
+                                <Select value={advForm.business_manager_id} onValueChange={(v) => setAdvForm({ ...advForm, business_manager_id: v })}>
+                                    <SelectTrigger><SelectValue placeholder="Selecionar BM..." /></SelectTrigger>
+                                    <SelectContent>{(businessManagers || []).map((bm) => (<SelectItem key={bm.id} value={bm.id}>{bm.name}</SelectItem>))}</SelectContent>
+                                </Select>
+                            </div>
+                            <div><Label>Nome (rótulo) *</Label><Input value={advForm.name} onChange={(e) => setAdvForm({ ...advForm, name: e.target.value })} placeholder="Ex: UVEPOM Marketing" /></div>
+                            <div><Label>Anunciante / beneficiário *</Label><Input value={advForm.beneficiary} onChange={(e) => setAdvForm({ ...advForm, beneficiary: e.target.value })} placeholder="Razão social exibida na transparência" /></div>
+                            <div><Label>Pagador</Label><Input value={advForm.payor} onChange={(e) => setAdvForm({ ...advForm, payor: e.target.value })} placeholder="Vazio = usa o mesmo do anunciante" /></div>
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setShowAdvDialog(false)}>Cancelar</Button>
+                            <Button onClick={() => createAdvertiserMutation.mutate()} disabled={!advForm.business_manager_id || !advForm.name.trim() || !advForm.beneficiary.trim() || createAdvertiserMutation.isPending}>
+                                {createAdvertiserMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}Cadastrar
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+        </div>
     );
 
     // ════════════════════════════════════════
