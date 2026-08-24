@@ -34,7 +34,7 @@ const CTA_OPTIONS = [
     { value: "DOWNLOAD", label: "Baixar" },
     { value: "WATCH_MORE", label: "Assistir" },
 ];
-const STEPS = ["Criativos", "Estrutura", "Conjuntos", "Anúncios", "Revisão", "Enviado"];
+const STEPS = ["Criativos & Estrutura", "Conjuntos", "Anúncios", "Revisão", "Enviado"];
 // Teto por pasta. Leva grande demais estoura o limite de chamadas da Meta e
 // morre no meio, deixando estrutura pela metade — melhor barrar na entrada.
 const MAX_ARQUIVOS_POR_PASTA = 30;
@@ -617,16 +617,15 @@ export default function BulkCreationPage() {
         },
         onSuccess: async () => {
             toast({ title: "Enviado com sucesso!", description: `${totalCampaigns} campanhas, ${totalSets} conjuntos e ${totalAds} anúncios.` });
-            setStep(5);
+            setStep(4);
         },
         onError: (error: any) => toast({ variant: "destructive", title: "Erro ao criar", description: error.message }),
     });
 
     const canGoNext = () => {
-        if (step === 0) return selectedFiles.length > 0;
-        if (step === 1) return tree.length > 0 && tree.every((c) => !!c.ad_account_id && c.ad_sets.length > 0 && c.ad_sets.every((s) => s.ads.length > 0));
-        if (step === 2) return adSetConfig.name && adSetConfig.countries;
-        if (step === 3) return adConfig.website_id && selectedAccounts.every((id) => accountPageMap[id]?.ad_page_id);
+        if (step === 0) return selectedFiles.length > 0 && tree.length > 0 && tree.every((c) => !!c.ad_account_id && c.ad_sets.length > 0 && c.ad_sets.every((s) => s.ads.length > 0));
+        if (step === 1) return adSetConfig.name && adSetConfig.countries;
+        if (step === 2) return adConfig.website_id && selectedAccounts.every((id) => accountPageMap[id]?.ad_page_id);
         return true;
     };
 
@@ -1165,7 +1164,7 @@ export default function BulkCreationPage() {
     // ════════════════════════════════════════
     // Auto-redirect after 4 seconds
     useEffect(() => {
-        if (step === 5) {
+        if (step === 4) {
             const timer = setTimeout(() => navigate("/executions"), 4000);
             return () => clearTimeout(timer);
         }
@@ -1193,7 +1192,7 @@ export default function BulkCreationPage() {
         </div>
     );
 
-    const renderCurrentStep = () => { switch (step) { case 0: return renderStep0(); case 1: return renderStep1(); case 2: return renderStep2(); case 3: return renderStep3(); case 4: return renderStep4(); case 5: return renderStep5(); default: return null; } };
+    const renderCurrentStep = () => { switch (step) { case 0: return <div className="space-y-6">{renderStep0()}{renderStep1()}</div>; case 1: return renderStep2(); case 2: return renderStep3(); case 3: return renderStep4(); case 4: return renderStep5(); default: return null; } };
 
 
     // ════════════════════════════════════════
@@ -1374,7 +1373,7 @@ export default function BulkCreationPage() {
         );
     };
 
-    const showSidebar = step < 4;
+    const showSidebar = step < 3;
 
     return (
         <div className="animate-fade-in">
@@ -1428,7 +1427,7 @@ export default function BulkCreationPage() {
                     renderCurrentStep()
                 )}
 
-                {step < 4 && (
+                {step < 3 && (
                     <div className="flex justify-between mt-6">
                         <Button variant="outline" onClick={() => setStep(step - 1)} disabled={step === 0}><ArrowLeft className="w-4 h-4 mr-2" />Voltar</Button>
                         <div className="flex items-center gap-4">
