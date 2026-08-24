@@ -272,8 +272,15 @@ export default function BulkCreationPage() {
             const todos: DriveFile[] = data.files || [];
             const files = todos.slice(0, MAX_ARQUIVOS_POR_PASTA);
             setDriveCortado(todos.length > MAX_ARQUIVOS_POR_PASTA ? todos.length : null);
-            setDriveFiles(files);
-            setSelectedFiles(files.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, "") })));
+            // Acervo acumulado: junta os arquivos desta pasta aos já carregados (dedup por id).
+            const jaVistos = new Set(driveFiles.map((f) => f.id));
+            const novos = files.filter((f) => !jaVistos.has(f.id));
+            setDriveFiles((prev) => [...prev, ...novos]);
+            setSelectedFiles((prev) => [
+                ...prev,
+                ...novos.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, "") })),
+            ]);
+            setDriveUrl("");
             toast(
                 todos.length > MAX_ARQUIVOS_POR_PASTA
                     ? {
@@ -281,7 +288,7 @@ export default function BulkCreationPage() {
                           title: `Pasta com ${todos.length} arquivos — carregamos os ${MAX_ARQUIVOS_POR_PASTA} primeiros`,
                           description: "Divida a pasta para subir o restante.",
                       }
-                    : { title: `${files.length} arquivo(s) encontrado(s)` }
+                    : { title: `+${novos.length} criativo(s) — acervo com ${driveFiles.length + novos.length}` }
             );
         } catch {
             setDriveCortado(null);
@@ -641,10 +648,13 @@ export default function BulkCreationPage() {
                         </div>
                         <div className="flex items-end">
                             <Button onClick={loadDriveFiles} disabled={!driveUrl || isLoadingDrive}>
-                                {isLoadingDrive ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Carregando...</> : "Carregar"}
+                                {isLoadingDrive ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Carregando...</> : driveFiles.length > 0 ? <><Plus className="w-4 h-4 mr-2" />Adicionar pasta</> : "Carregar"}
                             </Button>
                         </div>
                     </div>
+                    {driveFiles.length > 0 && (
+                        <p className="text-xs text-muted-foreground">Cole outra pasta e clique em <span className="font-medium">Adicionar pasta</span> para juntar mais criativos ao acervo.</p>
+                    )}
 
                     <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
@@ -673,7 +683,7 @@ export default function BulkCreationPage() {
                     {driveFiles.length > 0 && (
                         <div className="space-y-3">
                             <div className="flex items-center justify-between">
-                                <Label className="text-sm font-medium">{driveFiles.length} arquivo(s)</Label>
+                                <Label className="text-sm font-medium">Acervo — {driveFiles.length} criativo(s)</Label>
                                 <Button variant="ghost" size="sm" onClick={() => {
                                     if (selectedFiles.length === driveFiles.length) setSelectedFiles([]);
                                     else setSelectedFiles(driveFiles.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, "") })));
