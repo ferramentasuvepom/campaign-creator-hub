@@ -4,7 +4,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import {
     ArrowLeft, ArrowRight, Send, Loader2, ChevronRight, ChevronDown,
     Megaphone, Layers, FileImage, CheckCircle2, XCircle, FolderOpen, Save, FileStack,
-    PanelRightClose, PanelRightOpen, Eye, AlertTriangle,
+    PanelRightClose, PanelRightOpen, Eye, AlertTriangle, Plus,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
@@ -34,7 +34,7 @@ const CTA_OPTIONS = [
     { value: "DOWNLOAD", label: "Baixar" },
     { value: "WATCH_MORE", label: "Assistir" },
 ];
-const STEPS = ["Criativos", "Campanhas", "Conjuntos", "Anúncios", "Revisão", "Enviado"];
+const STEPS = ["Criativos & Estrutura", "Conjuntos", "Anúncios", "Revisão", "Enviado"];
 // Teto por pasta. Leva grande demais estoura o limite de chamadas da Meta e
 // morre no meio, deixando estrutura pela metade — melhor barrar na entrada.
 const MAX_ARQUIVOS_POR_PASTA = 30;
@@ -44,8 +44,12 @@ interface Pixel { id: string; name: string; pixel_id: string; }
 interface AdPage { id: string; page_id: string; name: string; business_manager_id: string | null; }
 interface InstagramAccount { id: string; instagram_actor_id: string; name: string; business_manager_id: string | null; }
 interface Website { id: string; name: string; url: string; business_manager_id: string | null; }
-interface DriveFile { name: string; id: string; mimeType: string; thumbnailLink: string | null; size: string | null; }
-interface SelectedFile { driveFileId: string; fileName: string; adName: string; }
+interface Advertiser { id: string; name: string; beneficiary: string; payor: string | null; business_manager_id: string | null; }
+interface TreeAd { uid: string; driveFileId: string; name: string; headline: string; call_to_action: string; website_id: string; }
+interface TreeAdSet { uid: string; name: string; ads: TreeAd[]; }
+interface TreeCampaign { uid: string; name: string; ad_account_id: string; objective: string; daily_budget: string; bid_strategy: string; ad_sets: TreeAdSet[]; }
+interface DriveFile { name: string; id: string; mimeType: string; thumbnailLink: string | null; size: string | null; folderId?: string; folderLabel?: string; }
+interface SelectedFile { driveFileId: string; fileName: string; adName: string; folderId?: string; folderLabel?: string; }
 interface ExistingCampaign { id: string; name: string; objective: string; status: string; ad_account_id: string; }
 interface BulkTemplate { id: string; name: string; description: string | null; config: any; created_at: string; }
 
@@ -64,6 +68,8 @@ export default function BulkCreationPage() {
     const [structure, setStructure] = useState({ campaigns: 1, adSets: 1, ads: 1 });
     const [executionId, setExecutionId] = useState<string | null>(null);
     const [showSaveDialog, setShowSaveDialog] = useState(false);
+    const [showAdvDialog, setShowAdvDialog] = useState(false);
+    const [advForm, setAdvForm] = useState({ business_manager_id: "", name: "", beneficiary: "", payor: "" });
     const [templateName, setTemplateName] = useState("");
     const [templateDesc, setTemplateDesc] = useState("");
     const [appliedTemplateName, setAppliedTemplateName] = useState<string | null>(null);
@@ -82,6 +88,12 @@ export default function BulkCreationPage() {
     const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
     const [isLoadingDrive, setIsLoadingDrive] = useState(false);
     const [driveCortado, setDriveCortado] = useState<number | null>(null);
+
+    // ── Árvore de criação (campanhas → conjuntos → anúncios) ──
+    const [tree, setTree] = useState<TreeCampaign[]>([]);
+    const [galleryAdSet, setGalleryAdSet] = useState<{ campUid: string; setUid: string } | null>(null);
+    const [galleryFolder, setGalleryFolder] = useState<string>("");
+    const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
 
     // ── Shared ad config ──
     const [adConfig, setAdConfig] = useState({
@@ -111,6 +123,39 @@ export default function BulkCreationPage() {
         }));
     };
 
+    // ── Helpers da árvore ──
+    const makeTreeAd = (driveFileId: string): TreeAd => {
+        const f = selectedFiles.find((s) => s.driveFileId === driveFileId);
+        return { uid: crypto.randomUUID(), driveFileId, name: f?.adName || f?.fileName || "Anúncio", headline: adConfig.headline, call_to_action: adConfig.call_to_action, website_id: adConfig.website_id };
+    };
+    const makeTreeAdSet = (i: number): TreeAdSet => ({ uid: crypto.randomUUID(), name: `Conjunto ${i}`, ads: [] });
+    const makeTreeCampaign = (i: number): TreeCampaign => ({ uid: crypto.randomUUID(), name: `Campanha ${i}`, ad_account_id: "", objective: "OUTCOME_SALES", daily_budget: "20", bid_strategy: "LOWEST_COST_WITHOUT_CAP", ad_sets: [makeTreeAdSet(1)] });
+    const addCampaign = () => setTree((t) => [...t, makeTreeCampaign(t.length + 1)]);
+    const removeCampaign = (uid: string) => setTree((t) => t.filter((c) => c.uid !== uid));
+    const updateCampaign = (uid: string, patch: Partial<TreeCampaign>) => setTree((t) => t.map((c) => (c.uid === uid ? { ...c, ...patch } : c)));
+    const addAdSet = (campUid: string) => setTree((t) => t.map((c) => (c.uid === campUid ? { ...c, ad_sets: [...c.ad_sets, makeTreeAdSet(c.ad_sets.length + 1)] } : c)));
+    const removeAdSet = (campUid: string, setUid: string) => setTree((t) => t.map((c) => (c.uid === campUid ? { ...c, ad_sets: c.ad_sets.filter((s) => s.uid !== setUid) } : c)));
+    const updateAdSet = (campUid: string, setUid: string, patch: Partial<TreeAdSet>) => setTree((t) => t.map((c) => (c.uid === campUid ? { ...c, ad_sets: c.ad_sets.map((s) => (s.uid === setUid ? { ...s, ...patch } : s)) } : c)));
+    const toggleAdInSet = (campUid: string, setUid: string, driveFileId: string) => setTree((t) => t.map((c) => {
+        if (c.uid !== campUid) return c;
+        return { ...c, ad_sets: c.ad_sets.map((s) => {
+            if (s.uid !== setUid) return s;
+            const exists = s.ads.find((a) => a.driveFileId === driveFileId);
+            return { ...s, ads: exists ? s.ads.filter((a) => a.driveFileId !== driveFileId) : [...s.ads, makeTreeAd(driveFileId)] };
+        }) };
+    }));
+
+    // Espelha as contas usadas na árvore em selectedAccounts (usado por Identidade/Conjunto/avisos)
+    useEffect(() => {
+        const accs = [...new Set(tree.map((c) => c.ad_account_id).filter(Boolean))];
+        setSelectedAccounts(accs);
+        setAccountPageMap((prev) => {
+            const next = { ...prev };
+            accs.forEach((id) => { if (!next[id]) next[id] = { ad_page_id: "", instagram_account_id: "", pixel_id: "" }; });
+            return next;
+        });
+    }, [tree]);
+
     // ── Campaigns: existing + new ──
     const [selectedCampaignIds, setSelectedCampaignIds] = useState<string[]>([]);
     const [createNewCampaigns, setCreateNewCampaigns] = useState(false);
@@ -128,6 +173,7 @@ export default function BulkCreationPage() {
         age_min: "18", age_max: "65", genders: "0", countries: "BR",
         billing_event: "IMPRESSIONS", optimization_goal: "OFFSITE_CONVERSIONS",
         bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+        dsa_advertiser_id: "",
     });
 
     // ── Queries ──
@@ -147,6 +193,27 @@ export default function BulkCreationPage() {
     const { data: adPages } = useQuery({ queryKey: ["ad_pages"], queryFn: async () => { const { data, error } = await supabase.from("ad_pages").select("id, page_id, name, business_manager_id"); if (error) throw error; return data as AdPage[]; } });
     const { data: instagramAccounts } = useQuery({ queryKey: ["instagram_accounts"], queryFn: async () => { const { data, error } = await supabase.from("instagram_accounts").select("id, instagram_actor_id, name, business_manager_id"); if (error) throw error; return data as InstagramAccount[]; } });
     const { data: websites } = useQuery({ queryKey: ["websites"], queryFn: async () => { const { data, error } = await supabase.from("websites").select("id, name, url, business_manager_id"); if (error) throw error; return data as Website[]; } });
+    const { data: advertisers } = useQuery({ queryKey: ["advertisers"], queryFn: async () => { const { data, error } = await supabase.from("advertisers").select("id, name, beneficiary, payor, business_manager_id"); if (error) throw error; return data as Advertiser[]; } });
+    const { data: businessManagers } = useQuery({ queryKey: ["business_managers"], queryFn: async () => { const { data, error } = await supabase.from("business_managers").select("id, name"); if (error) throw error; return data as { id: string; name: string }[]; } });
+    const createAdvertiserMutation = useMutation({
+        mutationFn: async () => {
+            const { data, error } = await supabase.from("advertisers").insert({
+                business_manager_id: advForm.business_manager_id ? Number(advForm.business_manager_id) : null,
+                name: advForm.name.trim(),
+                beneficiary: advForm.beneficiary.trim(),
+                payor: advForm.payor.trim() || null,
+            }).select("id").single();
+            if (error) throw error;
+            return data;
+        },
+        onSuccess: (data: any) => {
+            toast({ title: "Anunciante cadastrado!" });
+            queryClient.invalidateQueries({ queryKey: ["advertisers"] });
+            if (data?.id) setAdSetConfig((prev) => ({ ...prev, dsa_advertiser_id: String(data.id) }));
+            setShowAdvDialog(false);
+        },
+        onError: (e: any) => toast({ title: "Erro ao cadastrar anunciante", description: e.message, variant: "destructive" }),
+    });
     const { data: templates } = useQuery({
         queryKey: ["bulk_templates"], queryFn: async () => {
             const { data, error } = await supabase.from("bulk_templates").select("*").order("created_at", { ascending: false });
@@ -159,7 +226,7 @@ export default function BulkCreationPage() {
         const c = tpl.config;
         if (c.ad_config) setAdConfig(c.ad_config);
         if (c.campaign_config) setNewCampaignConfig(c.campaign_config);
-        if (c.adset_config) setAdSetConfig(c.adset_config);
+        if (c.adset_config) setAdSetConfig(prev => ({ ...prev, ...c.adset_config }));
         if (c.selected_account_ids) setSelectedAccounts(c.selected_account_ids);
         if (c.selected_campaign_ids) setSelectedCampaignIds(c.selected_campaign_ids);
         if (c.account_page_map) setAccountPageMap(c.account_page_map);
@@ -176,7 +243,7 @@ export default function BulkCreationPage() {
     const clearTemplate = () => {
         setAdConfig({ headline: "", call_to_action: "LEARN_MORE", website_id: "", utm_params: "", enable_multi_advertiser: false });
         setNewCampaignConfig({ name: "Campanha {{i}}", objective: "OUTCOME_SALES", daily_budget: "20", bid_strategy: "LOWEST_COST_WITHOUT_CAP" });
-        setAdSetConfig({ name: "{{creative}} - Conjunto {{i}}", age_min: "18", age_max: "65", genders: "0", countries: "BR", billing_event: "IMPRESSIONS", optimization_goal: "OFFSITE_CONVERSIONS", bid_strategy: "LOWEST_COST_WITHOUT_CAP" });
+        setAdSetConfig({ name: "{{creative}} - Conjunto {{i}}", age_min: "18", age_max: "65", genders: "0", countries: "BR", billing_event: "IMPRESSIONS", optimization_goal: "OFFSITE_CONVERSIONS", bid_strategy: "LOWEST_COST_WITHOUT_CAP", dsa_advertiser_id: "" });
         setSelectedAccounts([]);
         setSelectedCampaignIds([]);
         setAccountPageMap({});
@@ -247,8 +314,20 @@ export default function BulkCreationPage() {
             const todos: DriveFile[] = data.files || [];
             const files = todos.slice(0, MAX_ARQUIVOS_POR_PASTA);
             setDriveCortado(todos.length > MAX_ARQUIVOS_POR_PASTA ? todos.length : null);
-            setDriveFiles(files);
-            setSelectedFiles(files.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, "") })));
+            // Identifica a pasta de origem para marcar cada criativo (rótulo amigável, reusado se já carregada).
+            const folderId = driveUrl.match(/folders\/([\w-]+)/)?.[1] || driveUrl.trim();
+            const apiName = (data.folder_name || data.folderName || data.folder?.name) as string | undefined;
+            const existente = driveFiles.find((f) => f.folderId === folderId);
+            const folderLabel = existente?.folderLabel || apiName || `Pasta ${new Set(driveFiles.map((f) => f.folderId).filter(Boolean)).size + 1}`;
+            // Acervo acumulado: junta os arquivos desta pasta aos já carregados (dedup por id).
+            const jaVistos = new Set(driveFiles.map((f) => f.id));
+            const novos = files.filter((f) => !jaVistos.has(f.id)).map((f) => ({ ...f, folderId, folderLabel }));
+            setDriveFiles((prev) => [...prev, ...novos]);
+            setSelectedFiles((prev) => [
+                ...prev,
+                ...novos.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, ""), folderId, folderLabel })),
+            ]);
+            setDriveUrl("");
             toast(
                 todos.length > MAX_ARQUIVOS_POR_PASTA
                     ? {
@@ -256,7 +335,7 @@ export default function BulkCreationPage() {
                           title: `Pasta com ${todos.length} arquivos — carregamos os ${MAX_ARQUIVOS_POR_PASTA} primeiros`,
                           description: "Divida a pasta para subir o restante.",
                       }
-                    : { title: `${files.length} arquivo(s) encontrado(s)` }
+                    : { title: `+${novos.length} criativo(s) — acervo com ${driveFiles.length + novos.length}` }
             );
         } catch {
             setDriveCortado(null);
@@ -268,7 +347,7 @@ export default function BulkCreationPage() {
     const toggleFile = (file: DriveFile) => {
         setSelectedFiles((prev) => {
             if (prev.find((f) => f.driveFileId === file.id)) return prev.filter((f) => f.driveFileId !== file.id);
-            return [...prev, { driveFileId: file.id, fileName: file.name, adName: file.name.replace(/\.[^/.]+$/, "") }];
+            return [...prev, { driveFileId: file.id, fileName: file.name, adName: file.name.replace(/\.[^/.]+$/, ""), folderId: file.folderId, folderLabel: file.folderLabel }];
         });
     };
     const updateFile = (id: string, field: keyof SelectedFile, value: any) => {
@@ -316,6 +395,7 @@ export default function BulkCreationPage() {
     const adPagesVisiveis = daBM(adPages);
     const instagramVisiveis = daBM(instagramAccounts);
     const websitesVisiveis = daBM(websites);
+    const advertisersVisiveis = daBM(advertisers);
 
     // Trocar de conta muda a BM: o que ja estava escolhido pode nao pertencer
     // mais a ela. Limpa as escolhas que sumiram da lista, senao o anuncio sobe
@@ -360,11 +440,11 @@ export default function BulkCreationPage() {
     const faltaUS = contasUSD.length > 0 && !paisesSel.includes("US");
 
     // ── Totals ──
-    const newCampaignCount = createNewCampaigns ? structure.campaigns * selectedAccounts.length : 0;
-    const totalCampaigns = selectedCampaignIds.length + newCampaignCount;
-    const setsPerCampaign = selectedFiles.length * structure.adSets;
-    const totalSets = totalCampaigns * setsPerCampaign;
-    const totalAds = totalSets * structure.ads;
+    const treeAccountIds = [...new Set(tree.map((c) => c.ad_account_id).filter(Boolean))];
+    const totalCampaigns = tree.length;
+    const totalSets = tree.reduce((n, c) => n + c.ad_sets.length, 0);
+    const totalAds = tree.reduce((n, c) => n + c.ad_sets.reduce((m, s) => m + s.ads.length, 0), 0);
+    const totalVideos = new Set(tree.flatMap((c) => c.ad_sets.flatMap((s) => s.ads.map((a) => a.driveFileId)))).size;
 
     const resolveName = (tpl: string, creative: string, i: number) =>
         tpl.replace(/\{\{creative\}\}/g, creative).replace(/\{\{i\}\}/g, String(i + 1));
@@ -375,35 +455,18 @@ export default function BulkCreationPage() {
         type AccountPreview = { accountId: string; accountName: string; accountAdId: string; pageName: string | null; instaName: string | null; campaigns: CampaignPreview[] };
         const result: AccountPreview[] = [];
 
-        const makeAdSets = () => selectedFiles.flatMap((file) =>
-            Array.from({ length: structure.adSets }, (_, si) => ({
-                name: resolveName(adSetConfig.name, file.adName, si),
-                ads: Array.from({ length: structure.ads }, (_, ai) => ({
-                    name: structure.ads > 1 ? `${file.adName} - Cópia ${ai+1}` : file.adName
-                }))
-            })),
-        );
-
-        for (const accId of selectedAccounts) {
+        for (const accId of treeAccountIds) {
             const acc = adAccounts?.find((a) => a.id === accId);
             const mapping = accountPageMap[accId];
             const page = mapping ? adPages?.find((p) => p.id === mapping.ad_page_id) : null;
             const insta = mapping ? instagramAccounts?.find((i) => i.id === mapping.instagram_account_id) : null;
 
-            const campaigns: CampaignPreview[] = [];
-
-            // Existing campaigns belonging to this account
-            for (const campId of selectedCampaignIds) {
-                const c = existingCampaigns?.find((x) => x.id === campId && x.ad_account_id === accId);
-                if (c) campaigns.push({ name: c.name, isExisting: true, objective: c.objective, adSets: makeAdSets() });
-            }
-
-            // New campaigns
-            if (createNewCampaigns) {
-                for (let ci = 0; ci < structure.campaigns; ci++) {
-                    campaigns.push({ name: newCampaignConfig.name.replace(/\{\{i\}\}/g, String(ci + 1)), isExisting: false, objective: newCampaignConfig.objective, adSets: makeAdSets() });
-                }
-            }
+            const campaigns: CampaignPreview[] = tree
+                .filter((c) => c.ad_account_id === accId)
+                .map((c) => ({
+                    name: c.name, isExisting: false, objective: c.objective,
+                    adSets: c.ad_sets.map((s) => ({ name: s.name, ads: s.ads.map((a) => ({ name: a.name })) })),
+                }));
 
             if (campaigns.length > 0) {
                 result.push({
@@ -442,153 +505,134 @@ export default function BulkCreationPage() {
             const currentExecutionId = exec.id;
             setExecutionId(String(currentExecutionId));
 
-            // Phase 1: Collect all campaigns
-            const allCampaigns: { id: string; ad_account_id: string; name: string; isExisting: boolean }[] = [];
+            // Anunciante (transparência) — config global do conjunto, igual para todos
+            const dsaAdv = advertisers?.find((a) => String(a.id) === String(adSetConfig.dsa_advertiser_id));
+            const dsaBeneficiary = dsaAdv?.beneficiary?.trim() || null;
+            const dsaPayor = dsaAdv?.payor?.trim() || dsaBeneficiary;
 
-            for (const campId of selectedCampaignIds) {
-                const c = existingCampaigns?.find((x) => x.id === campId);
-                if (c) allCampaigns.push({ id: c.id, ad_account_id: c.ad_account_id, name: c.name, isExisting: true });
-            }
-
-            if (createNewCampaigns) {
-                for (const accountId of selectedAccounts) {
-                    for (let ci = 0; ci < structure.campaigns; ci++) {
-                        const campName = newCampaignConfig.name.replace(/\{\{i\}\}/g, String(ci + 1));
-                        const { data: campaign, error: campError } = await supabase
-                            .from("campaigns").insert({
-                                ad_account_id: accountId, name: campName,
-                                objective: newCampaignConfig.objective,
-                                daily_budget: Math.round(parseFloat(newCampaignConfig.daily_budget) * 100),
-                                bid_strategy: newCampaignConfig.bid_strategy,
-                                status: "DRAFT", sync_status: "pending",
-                                execution_id: currentExecutionId,
-                            }).select("id").single();
-                        if (campError) throw campError;
-                        allCampaigns.push({ id: campaign.id, ad_account_id: accountId, name: campName, isExisting: false });
-                    }
-                }
-            }
-
-            // Phase 2: For each campaign, create ad sets per creative (with indices)
+            // Percorre a árvore: cria cada campanha, seus conjuntos e os anúncios escolhidos
             const webhookCampaigns: any[] = [];
             let globalAdSetIndex = 0;
             let globalAdIndex = 0;
+            let campaignSeq = 0;
 
-            for (let campIdx = 0; campIdx < allCampaigns.length; campIdx++) {
-                const camp = allCampaigns[campIdx];
+            for (const campNode of tree) {
+                campaignSeq++;
+                const { data: campaign, error: campError } = await supabase
+                    .from("campaigns").insert({
+                        ad_account_id: campNode.ad_account_id, name: campNode.name,
+                        objective: campNode.objective,
+                        daily_budget: Math.round(parseFloat(campNode.daily_budget) * 100),
+                        bid_strategy: campNode.bid_strategy,
+                        status: "DRAFT", sync_status: "pending",
+                        execution_id: currentExecutionId,
+                    }).select("id").single();
+                if (campError) throw campError;
+
                 const webhookAdSets: any[] = [];
+                for (const setNode of campNode.ad_sets) {
+                    globalAdSetIndex++;
+                    const { data: adSet, error: setError } = await supabase
+                        .from("ad_sets").insert({
+                            campaign_id: campaign.id, name: setNode.name,
+                            age_min: parseInt(adSetConfig.age_min), age_max: parseInt(adSetConfig.age_max),
+                            genders: gendersArray, targeting_countries: countriesArray,
+                            dsa_advertiser_id: adSetConfig.dsa_advertiser_id ? Number(adSetConfig.dsa_advertiser_id) : null,
+                            dsa_beneficiary: dsaBeneficiary,
+                            dsa_payor: dsaPayor,
+                            execution_id: currentExecutionId,
+                        }).select("id").single();
+                    if (setError) throw setError;
 
-                for (let fi = 0; fi < selectedFiles.length; fi++) {
-                    const file = selectedFiles[fi];
-                    for (let si = 0; si < structure.adSets; si++) {
-                        globalAdSetIndex++;
-                        const setName = resolveName(adSetConfig.name, file.adName, si);
+                    const resolvedPixel = (() => {
+                        const m = accountPageMap[campNode.ad_account_id];
+                        return pixels?.find((x) => x.id === m?.pixel_id) || null;
+                    })();
 
-                        const { data: adSet, error: setError } = await supabase
-                            .from("ad_sets").insert({
-                                campaign_id: camp.id, name: setName,
-                                age_min: parseInt(adSetConfig.age_min), age_max: parseInt(adSetConfig.age_max),
-                                genders: gendersArray, targeting_countries: countriesArray,
+                    const localAds = [];
+                    for (const adNode of setNode.ads) {
+                        globalAdIndex++;
+                        const file = selectedFiles.find((f) => f.driveFileId === adNode.driveFileId);
+                        const adWebsite = websites?.find((w) => w.id === adNode.website_id);
+                        const adLink = adWebsite?.url || baseUrl || null;
+
+                        const { data: ad, error: adError } = await supabase
+                            .from("ads").insert({
+                                ad_set_id: adSet.id, name: adNode.name,
+                                headline: adNode.headline || null, call_to_action: adNode.call_to_action,
+                                link_url: adLink, video_drive_url: null,
                                 execution_id: currentExecutionId,
                             }).select("id").single();
-                        if (setError) throw setError;
-                        
-                        const resolvedPixel = (() => {
-                            if (!useSamePages) {
-                                const am = adPageMap[file.driveFileId];
-                                return pixels?.find((x) => x.id === am?.pixel_id) || null;
-                            }
-                            const m = accountPageMap[camp.ad_account_id];
-                            return pixels?.find((x) => x.id === m?.pixel_id) || null;
-                        })();
-                        
-                        const localAds = [];
-                        for(let ai = 0; ai < structure.ads; ai++) {
-                            globalAdIndex++;
-                            const currentAdName = structure.ads > 1 ? `${file.adName} - Cópia ${ai+1}` : file.adName;
-                            
-                            const { data: ad, error: adError } = await supabase
-                                .from("ads").insert({
-                                    ad_set_id: adSet.id, name: currentAdName,
-                                    headline: adConfig.headline || null, call_to_action: adConfig.call_to_action,
-                                    link_url: baseUrl || null, video_drive_url: driveUrl || null,
-                                    execution_id: currentExecutionId,
-                                }).select("id").single();
-                            if (adError) throw adError;
-                            
-                            localAds.push({
-                                ad_index: globalAdIndex,
-                                ad_id: ad.id, adset_id: adSet.id, campaign_id: camp.id,
-                                name: currentAdName, headline: adConfig.headline || null,
-                                call_to_action: adConfig.call_to_action,
-                                page_id: (() => {
-                                    if (!useSamePages) {
-                                        const am = adPageMap[file.driveFileId];
-                                        const p = adPages?.find((x) => x.id === am?.ad_page_id);
-                                        return p?.page_id || null;
-                                    }
-                                    const m = accountPageMap[camp.ad_account_id]; const p = adPages?.find((x) => x.id === m?.ad_page_id); return p?.page_id || null;
-                                })(),
-                                instagram_actor_id: (() => {
-                                    if (!useSamePages) {
-                                        const am = adPageMap[file.driveFileId];
-                                        const i = instagramAccounts?.find((x) => x.id === am?.instagram_account_id);
-                                        return i?.instagram_actor_id || null;
-                                    }
-                                    const m = accountPageMap[camp.ad_account_id]; const i = instagramAccounts?.find((x) => x.id === m?.instagram_account_id); return i?.instagram_actor_id || null;
-                                })(),
-                                video_index: fi + 1, video_drive_id: file.driveFileId,
-                                video_drive_url: driveUrl || null, video_file_name: file.fileName,
-                                link_url: baseUrl || null, url_tags: adConfig.utm_params || null,
-                                enable_multi_advertiser: adConfig.enable_multi_advertiser,
-                            });
-                        }
+                        if (adError) throw adError;
 
-                        webhookAdSets.push({
-                            adset_index: globalAdSetIndex,
-                            adset_id: adSet.id, campaign_id: camp.id, name: setName,
-                            age_min: parseInt(adSetConfig.age_min), age_max: parseInt(adSetConfig.age_max),
-                            genders: gendersArray, countries: countriesArray,
-                            pixel_id: resolvedPixel?.pixel_id || null,
-                            billing_event: adSetConfig.billing_event, optimization_goal: adSetConfig.optimization_goal,
-                            bid_strategy: adSetConfig.bid_strategy,
-                            promoted_object: resolvedPixel ? { pixel_id: resolvedPixel.pixel_id, custom_event_type: "PURCHASE" } : undefined,
-                            targeting_automation: { advantage_audience: 1 },
-                            ads: localAds,
+                        const resolvePage = () => {
+                            if (!useSamePages) { const am = adPageMap[adNode.driveFileId]; return adPages?.find((x) => x.id === am?.ad_page_id)?.page_id || null; }
+                            const m = accountPageMap[campNode.ad_account_id]; return adPages?.find((x) => x.id === m?.ad_page_id)?.page_id || null;
+                        };
+                        const resolveIg = () => {
+                            if (!useSamePages) { const am = adPageMap[adNode.driveFileId]; return instagramAccounts?.find((x) => x.id === am?.instagram_account_id)?.instagram_actor_id || null; }
+                            const m = accountPageMap[campNode.ad_account_id]; return instagramAccounts?.find((x) => x.id === m?.instagram_account_id)?.instagram_actor_id || null;
+                        };
+
+                        localAds.push({
+                            ad_index: globalAdIndex,
+                            ad_id: ad.id, adset_id: adSet.id, campaign_id: campaign.id,
+                            name: adNode.name, headline: adNode.headline || null,
+                            call_to_action: adNode.call_to_action,
+                            page_id: resolvePage(),
+                            instagram_actor_id: resolveIg(),
+                            video_index: globalAdIndex, video_drive_id: adNode.driveFileId,
+                            video_drive_url: null, video_file_name: file?.fileName || adNode.name,
+                            link_url: adLink, url_tags: adConfig.utm_params || null,
+                            enable_multi_advertiser: adConfig.enable_multi_advertiser,
                         });
                     }
+
+                    webhookAdSets.push({
+                        adset_index: globalAdSetIndex,
+                        adset_id: adSet.id, campaign_id: campaign.id, name: setNode.name,
+                        age_min: parseInt(adSetConfig.age_min), age_max: parseInt(adSetConfig.age_max),
+                        genders: gendersArray, countries: countriesArray,
+                        pixel_id: resolvedPixel?.pixel_id || null,
+                        billing_event: adSetConfig.billing_event, optimization_goal: adSetConfig.optimization_goal,
+                        bid_strategy: adSetConfig.bid_strategy,
+                        promoted_object: resolvedPixel ? { pixel_id: resolvedPixel.pixel_id, custom_event_type: "PURCHASE" } : undefined,
+                        targeting_automation: { advantage_audience: 1 },
+                        dsa_beneficiary: dsaBeneficiary,
+                        dsa_payor: dsaPayor,
+                        ads: localAds,
+                    });
                 }
 
                 webhookCampaigns.push({
-                    campaign_index: campIdx + 1,
-                    campaign_id: camp.id, ad_account_id: camp.ad_account_id,
-                    name: camp.name, is_existing: camp.isExisting,
-                    objective: camp.isExisting ? undefined : newCampaignConfig.objective,
-                    daily_budget: camp.isExisting ? undefined : Math.round(parseFloat(newCampaignConfig.daily_budget) * 100),
-                    bid_strategy: camp.isExisting ? undefined : newCampaignConfig.bid_strategy,
+                    campaign_index: campaignSeq,
+                    campaign_id: campaign.id, ad_account_id: campNode.ad_account_id,
+                    name: campNode.name, is_existing: false,
+                    objective: campNode.objective,
+                    daily_budget: Math.round(parseFloat(campNode.daily_budget) * 100),
+                    bid_strategy: campNode.bid_strategy,
                     ad_sets: webhookAdSets,
                 });
             }
 
             const res = await fetch(import.meta.env.VITE_N8N_WEBHOOK_BULK, {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ execution_id: currentExecutionId, campaigns: webhookCampaigns, user_id: user?.id, total_campaigns: totalCampaigns, total_adsets: totalSets, total_ads: totalAds, total_videos: selectedFiles.length }),
+                body: JSON.stringify({ execution_id: currentExecutionId, campaigns: webhookCampaigns, user_id: user?.id, total_campaigns: totalCampaigns, total_adsets: totalSets, total_ads: totalAds, total_videos: totalVideos }),
             });
             if (!res.ok) throw new Error("Webhook falhou");
             return webhookCampaigns;
         },
         onSuccess: async () => {
             toast({ title: "Enviado com sucesso!", description: `${totalCampaigns} campanhas, ${totalSets} conjuntos e ${totalAds} anúncios.` });
-            setStep(5);
+            setStep(4);
         },
         onError: (error: any) => toast({ variant: "destructive", title: "Erro ao criar", description: error.message }),
     });
 
     const canGoNext = () => {
-        if (step === 0) return selectedFiles.length > 0;
-        if (step === 1) return selectedAccounts.length > 0 && (selectedCampaignIds.length > 0 || (createNewCampaigns && newCampaignConfig.name)) && structure.adSets > 0;
-        if (step === 2) return adSetConfig.name && adSetConfig.countries;
-        if (step === 3) return adConfig.website_id && selectedAccounts.every((id) => accountPageMap[id]?.ad_page_id);
+        if (step === 0) return selectedFiles.length > 0 && tree.length > 0 && tree.every((c) => !!c.ad_account_id && c.ad_sets.length > 0 && c.ad_sets.every((s) => s.ads.length > 0));
+        if (step === 1) return adSetConfig.name && adSetConfig.countries;
+        if (step === 2) return adConfig.website_id && selectedAccounts.every((id) => accountPageMap[id]?.ad_page_id);
         return true;
     };
 
@@ -607,10 +651,13 @@ export default function BulkCreationPage() {
                         </div>
                         <div className="flex items-end">
                             <Button onClick={loadDriveFiles} disabled={!driveUrl || isLoadingDrive}>
-                                {isLoadingDrive ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Carregando...</> : "Carregar"}
+                                {isLoadingDrive ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Carregando...</> : driveFiles.length > 0 ? <><Plus className="w-4 h-4 mr-2" />Adicionar pasta</> : "Carregar"}
                             </Button>
                         </div>
                     </div>
+                    {driveFiles.length > 0 && (
+                        <p className="text-xs text-muted-foreground">Cole outra pasta e clique em <span className="font-medium">Adicionar pasta</span> para juntar mais criativos ao acervo.</p>
+                    )}
 
                     <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
@@ -639,36 +686,57 @@ export default function BulkCreationPage() {
                     {driveFiles.length > 0 && (
                         <div className="space-y-3">
                             <div className="flex items-center justify-between">
-                                <Label className="text-sm font-medium">{driveFiles.length} arquivo(s)</Label>
+                                <Label className="text-sm font-medium">Acervo — {driveFiles.length} criativo(s)</Label>
                                 <Button variant="ghost" size="sm" onClick={() => {
                                     if (selectedFiles.length === driveFiles.length) setSelectedFiles([]);
-                                    else setSelectedFiles(driveFiles.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, "") })));
+                                    else setSelectedFiles(driveFiles.map((f) => ({ driveFileId: f.id, fileName: f.name, adName: f.name.replace(/\.[^/.]+$/, ""), folderId: f.folderId, folderLabel: f.folderLabel })));
                                 }}>
                                     {selectedFiles.length === driveFiles.length ? "Desmarcar todos" : "Selecionar todos"}
                                 </Button>
                             </div>
-                            {driveFiles.map((file) => {
-                                const sel = selectedFiles.find((f) => f.driveFileId === file.id);
-                                return (
-                                    <div key={file.id} className={`border rounded-lg p-4 transition-colors ${sel ? "border-primary/40 bg-primary/5" : ""}`}>
-                                        <div className="flex items-start gap-3">
-                                            <Checkbox checked={!!sel} onCheckedChange={() => toggleFile(file)} className="mt-1" />
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-medium break-all leading-relaxed">🎬 {file.name}</p>
-                                                {file.size && <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>}
-                                            </div>
-                                        </div>
-                                        {sel && (
-                                            <div className="mt-3 ml-9 space-y-3">
-                                                <div>
-                                                    <Label className="text-xs">Nome do Anúncio</Label>
-                                                    <Input className="h-8 text-sm" value={sel.adName} onChange={(e) => updateFile(file.id, "adName", e.target.value)} />
+                            {(() => {
+                                const labels: string[] = [];
+                                driveFiles.forEach((f) => { const l = f.folderLabel || "Pasta"; if (!labels.includes(l)) labels.push(l); });
+                                return labels.map((label) => {
+                                    const arquivos = driveFiles.filter((f) => (f.folderLabel || "Pasta") === label);
+                                    const aberto = openFolders[label] !== false;
+                                    const selNaPasta = arquivos.filter((f) => selectedFiles.some((s) => s.driveFileId === f.id)).length;
+                                    return (
+                                        <div key={label} className="border rounded-lg">
+                                            <button type="button" className="flex items-center gap-2 w-full text-left px-3 py-2" onClick={() => setOpenFolders((p) => ({ ...p, [label]: !aberto }))}>
+                                                <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${aberto ? "" : "-rotate-90"}`} />
+                                                <FolderOpen className="w-4 h-4 text-primary shrink-0" />
+                                                <span className="text-sm font-medium">{label}</span>
+                                                <span className="text-xs text-muted-foreground">— {selNaPasta}/{arquivos.length} selecionado(s)</span>
+                                            </button>
+                                            {aberto && (
+                                                <div className="p-3 pt-0 space-y-2">
+                                                    {arquivos.map((file) => {
+                                                        const sel = selectedFiles.find((f) => f.driveFileId === file.id);
+                                                        return (
+                                                            <div key={file.id} className={`border rounded-lg p-3 transition-colors ${sel ? "border-primary/40 bg-primary/5" : ""}`}>
+                                                                <div className="flex items-start gap-3">
+                                                                    <Checkbox checked={!!sel} onCheckedChange={() => toggleFile(file)} className="mt-1" />
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <p className="text-sm font-medium break-all leading-relaxed">🎬 {file.name}</p>
+                                                                        {file.size && <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>}
+                                                                    </div>
+                                                                </div>
+                                                                {sel && (
+                                                                    <div className="mt-3 ml-9">
+                                                                        <Label className="text-xs">Nome do Anúncio</Label>
+                                                                        <Input className="h-8 text-sm" value={sel.adName} onChange={(e) => updateFile(file.id, "adName", e.target.value)} />
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
                                                 </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
+                                            )}
+                                        </div>
+                                    );
+                                });
+                            })()}
                         </div>
                     )}
                 </CardContent>
@@ -681,264 +749,122 @@ export default function BulkCreationPage() {
     // ════════════════════════════════════════
     const renderStep1 = () => (
         <div className="space-y-6">
-            {/* Account selection */}
             <Card>
                 <CardHeader>
                     <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg flex items-center gap-2">📊 Contas de Anúncio *</CardTitle>
-                        {adAccounts && adAccounts.length > 0 && (
-                            <Badge variant="secondary">{selectedAccounts.length}/{adAccounts.length} selecionada(s)</Badge>
-                        )}
+                        <CardTitle className="text-lg">Estrutura da criação</CardTitle>
+                        <Button size="sm" onClick={addCampaign}><Plus className="w-4 h-4 mr-1" />Campanha</Button>
                     </div>
+                    <p className="text-sm text-muted-foreground">Monte campanhas → conjuntos e escolha os anúncios de cada conjunto pela galeria do acervo ({selectedFiles.length} criativo(s)).</p>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                    {(!adAccounts || adAccounts.length === 0) ? (
-                        <p className="text-sm text-muted-foreground">Nenhuma conta encontrada.</p>
-                    ) : (
-                        <>
-                            <div className="flex gap-2">
-                                <div className="flex-1">
-                                    <Input
-                                        placeholder="Buscar por nome ou ID da conta..."
-                                        value={accountSearch}
-                                        onChange={(e) => setAccountSearch(e.target.value)}
-                                        className="h-9"
-                                    />
-                                </div>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-9 whitespace-nowrap"
-                                    onClick={() => {
-                                        const filtered = adAccounts.filter((acc) => {
-                                            const q = accountSearch.toLowerCase();
-                                            return !q || acc.account_name.toLowerCase().includes(q) || acc.account_id.toLowerCase().includes(q);
-                                        });
-                                        const filteredIds = filtered.map((a) => a.id);
-                                        const allSelected = filteredIds.every((id) => selectedAccounts.includes(id));
-                                        if (allSelected) {
-                                            setSelectedAccounts((prev) => prev.filter((id) => !filteredIds.includes(id)));
-                                            setAccountPageMap((prev) => {
-                                                const newMap = { ...prev };
-                                                filteredIds.forEach((id) => delete newMap[id]);
-                                                return newMap;
-                                            });
-                                        } else {
-                                            setSelectedAccounts((prev) => [...new Set([...prev, ...filteredIds])]);
-                                            setAccountPageMap((prev) => {
-                                                const newMap = { ...prev };
-                                                filteredIds.forEach((id) => {
-                                                    if (!newMap[id]) newMap[id] = { ad_page_id: "", instagram_account_id: "", pixel_id: "" };
-                                                });
-                                                return newMap;
-                                            });
-                                        }
-                                    }}
-                                >
-                                    {(() => {
-                                        const filtered = adAccounts.filter((acc) => {
-                                            const q = accountSearch.toLowerCase();
-                                            return !q || acc.account_name.toLowerCase().includes(q) || acc.account_id.toLowerCase().includes(q);
-                                        });
-                                        return filtered.every((a) => selectedAccounts.includes(a.id)) ? "Desmarcar todos" : "Marcar todos";
-                                    })()}
-                                </Button>
-                            </div>
-                            <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
-                                {adAccounts
-                                    .filter((acc) => {
-                                        const q = accountSearch.toLowerCase();
-                                        return !q || acc.account_name.toLowerCase().includes(q) || acc.account_id.toLowerCase().includes(q);
-                                    })
-                                    .map((acc) => (
-                                        <div key={acc.id} className="flex items-center gap-3">
-                                            <Checkbox checked={selectedAccounts.includes(acc.id)} onCheckedChange={() => toggleAccount(acc.id)} />
-                                            <label className="text-sm cursor-pointer">{acc.account_name} <span className="text-muted-foreground">({acc.account_id})</span></label>
-                                        </div>
-                                    ))}
-                            </div>
-                        </>
+                <CardContent className="space-y-4">
+                    {tree.length === 0 && (
+                        <p className="text-sm text-muted-foreground">Nenhuma campanha ainda. Clique em <span className="font-medium">Campanha</span> para começar.</p>
                     )}
-                </CardContent>
-            </Card>
-
-            {templates && templates.length > 0 && (
-                <Card>
-                    <CardHeader>
-                        <div className="flex items-center justify-between">
-                            <CardTitle className="text-lg flex items-center gap-2">
-                                <FileStack className="w-5 h-5" />Aplicar Template
-                            </CardTitle>
-                            {appliedTemplateName && (
-                                <Badge variant="default" className="text-xs">✓ {appliedTemplateName}</Badge>
-                            )}
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                            Aplique um template para preencher automaticamente contas, páginas, campanhas e configurações.
-                        </p>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                        {templates.map((tpl) => {
-                            const isApplied = appliedTemplateName === tpl.name;
-                            const obj = CAMPAIGN_OBJECTIVES.find((o) => o.value === tpl.config.campaign_config?.objective);
-                            return (
-                                <div
-                                    key={tpl.id}
-                                    className={`border rounded-lg p-4 transition-colors cursor-pointer hover:border-primary/40 hover:bg-primary/5 ${
-                                        isApplied ? "border-primary/60 bg-primary/10 ring-1 ring-primary/30" : ""
-                                    }`}
-                                    onClick={() => applyTemplate(tpl)}
-                                >
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <p className="font-semibold text-sm">{tpl.name}</p>
-                                                {isApplied && <Badge variant="default" className="text-xs">Aplicado</Badge>}
-                                                <Badge variant="outline" className="text-xs">
-                                                    {new Date(tpl.created_at).toLocaleDateString("pt-BR")}
-                                                </Badge>
-                                            </div>
-                                            {tpl.description && <p className="text-xs text-muted-foreground mb-2">{tpl.description}</p>}
-                                            <div className="flex flex-wrap gap-1.5">
-                                                {obj && <Badge variant="secondary" className="text-xs">{obj.label}</Badge>}
-                                            </div>
-                                        </div>
-                                        <Button
-                                            variant={isApplied ? "default" : "outline"}
-                                            size="sm"
-                                            className="shrink-0"
-                                            onClick={(e) => { e.stopPropagation(); applyTemplate(tpl); }}
-                                        >
-                                            {isApplied ? "✓ Aplicado" : "Aplicar"}
+                    {tree.map((camp, ci) => (
+                        <div key={camp.uid} className="border rounded-lg p-4 space-y-3">
+                            <div className="flex items-center gap-2">
+                                <span className="font-bold">📂 Campanha {ci + 1}</span>
+                                <div className="flex-1" />
+                                <Button variant="ghost" size="icon" className="h-8 w-8" title="Remover campanha" onClick={() => removeCampaign(camp.uid)}><XCircle className="w-4 h-4" /></Button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div><Label className="text-xs">Nome</Label><Input value={camp.name} onChange={(e) => updateCampaign(camp.uid, { name: e.target.value })} /></div>
+                                <div>
+                                    <Label className="text-xs">Conta *</Label>
+                                    <Select value={camp.ad_account_id} onValueChange={(v) => updateCampaign(camp.uid, { ad_account_id: v })}>
+                                        <SelectTrigger><SelectValue placeholder="Selecionar conta..." /></SelectTrigger>
+                                        <SelectContent>{(adAccounts || []).map((a) => (<SelectItem key={a.id} value={a.id}>{a.account_name} ({a.account_id})</SelectItem>))}</SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3">
+                                <div>
+                                    <Label className="text-xs">Objetivo</Label>
+                                    <Select value={camp.objective} onValueChange={(v) => updateCampaign(camp.uid, { objective: v })}>
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>{CAMPAIGN_OBJECTIVES.map((o) => (<SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>))}</SelectContent>
+                                    </Select>
+                                </div>
+                                <div><Label className="text-xs">Orçamento diário (R$)</Label><Input type="number" min={5} value={camp.daily_budget} onChange={(e) => updateCampaign(camp.uid, { daily_budget: e.target.value })} /></div>
+                                <div>
+                                    <Label className="text-xs">Bid Strategy</Label>
+                                    <Select value={camp.bid_strategy} onValueChange={(v) => updateCampaign(camp.uid, { bid_strategy: v })}>
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent><SelectItem value="LOWEST_COST_WITHOUT_CAP">Menor Custo</SelectItem><SelectItem value="COST_CAP">Custo Alvo</SelectItem></SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                            <div className="space-y-2 pl-3 border-l-2 border-primary/20">
+                                {camp.ad_sets.map((set) => (
+                                    <div key={set.uid} className="flex items-center gap-2">
+                                        <span className="text-sm">📁</span>
+                                        <Input className="h-8 text-sm flex-1" value={set.name} onChange={(e) => updateAdSet(camp.uid, set.uid, { name: e.target.value })} />
+                                        <Button variant="outline" size="sm" className="h-8" onClick={() => setGalleryAdSet({ campUid: camp.uid, setUid: set.uid })}>
+                                            <FileImage className="w-4 h-4 mr-1" />Anúncios ({set.ads.length})
                                         </Button>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8" title="Remover conjunto" onClick={() => removeAdSet(camp.uid, set.uid)}><XCircle className="w-4 h-4" /></Button>
                                     </div>
-                                </div>
-                            );
-                        })}
-                    </CardContent>
-                    {appliedTemplateName && (
-                        <div className="px-6 pb-4">
-                            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive w-full" onClick={clearTemplate}>
-                                Desativar Template
-                            </Button>
+                                ))}
+                                <Button variant="ghost" size="sm" onClick={() => addAdSet(camp.uid)}><Plus className="w-4 h-4 mr-1" />Conjunto</Button>
+                            </div>
                         </div>
-                    )}
-                </Card>
-            )}
+                    ))}
+                </CardContent>
+            </Card>
 
-            <Card className={createNewCampaigns ? "opacity-50 pointer-events-none" : ""}>
-                <CardHeader>
-                    <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg">Campanhas Existentes</CardTitle>
-                        {createNewCampaigns && <Badge variant="secondary" className="text-xs">Desativado — criando novas campanhas</Badge>}
-                    </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
+            <Dialog open={!!galleryAdSet} onOpenChange={(o) => { if (!o) setGalleryAdSet(null); }}>
+                <DialogContent className="max-w-3xl">
+                    <DialogHeader><DialogTitle>Anúncios do conjunto</DialogTitle></DialogHeader>
                     {(() => {
-                        const filtered = existingCampaigns?.filter((c) => selectedAccounts.includes(c.ad_account_id)) || [];
-                        if (filtered.length === 0) return <p className="text-sm text-muted-foreground">Nenhuma campanha encontrada para as contas selecionadas.</p>;
-                        return filtered.map((camp) => {
-                            const acc = adAccounts?.find((a) => a.id === camp.ad_account_id);
-                            return (
-                                <div key={camp.id} className="flex items-center gap-3">
-                                    <Checkbox checked={selectedCampaignIds.includes(camp.id)} onCheckedChange={() => toggleCampaign(camp.id)} />
-                                    <div className="flex-1 text-sm">
-                                        <span className="font-medium">{camp.name}</span>
-                                        <Badge variant="outline" className="ml-2 text-xs">{CAMPAIGN_OBJECTIVES.find((o) => o.value === camp.objective)?.label}</Badge>
-                                        <Badge variant={camp.status === "ACTIVE" ? "default" : "secondary"} className="ml-1 text-xs">{camp.status}</Badge>
-                                        {acc && <span className="text-muted-foreground ml-2">— {acc.account_name}</span>}
-                                    </div>
+                        if (!galleryAdSet) return null;
+                        const camp = tree.find((c) => c.uid === galleryAdSet.campUid);
+                        const set = camp?.ad_sets.find((s) => s.uid === galleryAdSet.setUid);
+                        if (!set) return null;
+                        if (selectedFiles.length === 0) return <p className="text-sm text-muted-foreground py-4">Acervo vazio — carregue pastas do Drive no passo Criativos.</p>;
+                        const folders: string[] = [];
+                        selectedFiles.forEach((f) => { const l = f.folderLabel || "Pasta"; if (!folders.includes(l)) folders.push(l); });
+                        const visiveis = galleryFolder ? selectedFiles.filter((f) => (f.folderLabel || "Pasta") === galleryFolder) : selectedFiles;
+                        return (
+                            <div className="space-y-3">
+                                {folders.length > 1 && (
+                                    <Select value={galleryFolder || "__all"} onValueChange={(v) => setGalleryFolder(v === "__all" ? "" : v)}>
+                                        <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="__all">Todas as pastas ({selectedFiles.length})</SelectItem>
+                                            {folders.map((l) => (<SelectItem key={l} value={l}>{l} ({selectedFiles.filter((f) => (f.folderLabel || "Pasta") === l).length})</SelectItem>))}
+                                        </SelectContent>
+                                    </Select>
+                                )}
+                                <div className="grid grid-cols-3 gap-3 max-h-[55vh] overflow-y-auto py-1">
+                                    {visiveis.map((f) => {
+                                        const df = driveFiles.find((d) => d.id === f.driveFileId);
+                                        const checked = !!set.ads.find((a) => a.driveFileId === f.driveFileId);
+                                        return (
+                                            <button key={f.driveFileId} type="button" onClick={() => toggleAdInSet(galleryAdSet.campUid, galleryAdSet.setUid, f.driveFileId)}
+                                                className={`text-left border rounded-lg overflow-hidden transition-all ${checked ? "border-primary ring-2 ring-primary/40" : "hover:border-primary/40"}`}>
+                                                <div className="aspect-video bg-muted flex items-center justify-center overflow-hidden">
+                                                    {df?.thumbnailLink ? <img src={df.thumbnailLink} alt={f.fileName} className="w-full h-full object-cover" /> : <FileImage className="w-8 h-8 text-muted-foreground" />}
+                                                </div>
+                                                <div className="p-2 space-y-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <Checkbox checked={checked} className="pointer-events-none" />
+                                                        <span className="text-xs truncate">{f.adName || f.fileName}</span>
+                                                    </div>
+                                                    <Badge variant="outline" className="text-[9px]">📁 {f.folderLabel || "Pasta"}</Badge>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
                                 </div>
-                            );
-                        });
+                            </div>
+                        );
                     })()}
-                </CardContent>
-            </Card>
-
-            <Card className={selectedCampaignIds.length > 0 ? "opacity-50 pointer-events-none" : ""}>
-                <CardHeader>
-                    <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg">Criar Novas Campanhas</CardTitle>
-                        {selectedCampaignIds.length > 0
-                            ? <Badge variant="secondary" className="text-xs">Desativado — campanhas existentes selecionadas</Badge>
-                            : <Switch checked={createNewCampaigns} onCheckedChange={(v) => { setCreateNewCampaigns(v); if (v) setSelectedCampaignIds([]); }} />
-                        }
-                    </div>
-                </CardHeader>
-                {createNewCampaigns && selectedCampaignIds.length === 0 && (
-                    <CardContent className="space-y-4">
-                        <p className="text-sm text-muted-foreground">A quantidade de campanhas é baseada no cartão de "Estrutura". As novas campanhas serão criadas nas {selectedAccounts.length} conta(s) selecionada(s).</p>
-                        <div className="grid grid-cols-1 gap-4">
-                            <div>
-                                <Label>Nome Base *</Label>
-                                <Input value={newCampaignConfig.name} onChange={(e) => setNewCampaignConfig({ ...newCampaignConfig, name: e.target.value })} />
-                                <p className="text-xs text-muted-foreground mt-1">Use {"{{i}}"} para índice</p>
-                            </div>
-
-                        </div>
-                        <div className="grid grid-cols-3 gap-4">
-                            <div>
-                                <Label>Objetivo *</Label>
-                                <Select value={newCampaignConfig.objective} onValueChange={(v) => setNewCampaignConfig({ ...newCampaignConfig, objective: v })}>
-                                    <SelectTrigger><SelectValue /></SelectTrigger>
-                                    <SelectContent>{CAMPAIGN_OBJECTIVES.map((o) => (<SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>))}</SelectContent>
-                                </Select>
-                            </div>
-                            <div>
-                                <Label>Orçamento Diário (R$) *</Label>
-                                <Input type="number" min={5} value={newCampaignConfig.daily_budget} onChange={(e) => setNewCampaignConfig({ ...newCampaignConfig, daily_budget: e.target.value })} />
-                            </div>
-                            <div>
-                                <Label>Bid Strategy</Label>
-                                <Select value={newCampaignConfig.bid_strategy} onValueChange={(v) => setNewCampaignConfig({ ...newCampaignConfig, bid_strategy: v })}>
-                                    <SelectTrigger><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="LOWEST_COST_WITHOUT_CAP">Menor Custo</SelectItem>
-                                        <SelectItem value="COST_CAP">Custo Alvo</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-                    </CardContent>
-                )}
-            </Card>
-
-            <Card>
-                <CardHeader>
-                    <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg">Estrutura da Criação</CardTitle>
-                    </div>
-                    <p className="text-sm text-muted-foreground">Especifique a quantidade separada para a estrutura mestre (ex: {structure.campaigns}x{structure.adSets}x{structure.ads}).</p>
-                </CardHeader>
-                <CardContent>
-                    <div className="flex flex-col md:flex-row items-center gap-6">
-                        <div className="flex-1 grid grid-cols-3 gap-4 w-full">
-                            <div>
-                                <Label>Campanhas</Label>
-                                <Input type="number" min={1} max={50} value={structure.campaigns} disabled={!createNewCampaigns} onChange={(e) => setStructure({ ...structure, campaigns: Math.max(1, parseInt(e.target.value) || 1) })} title={!createNewCampaigns ? "Ative 'Criar Novas Campanhas' para alterar." : ""} />
-                                <p className="text-[10px] text-muted-foreground mt-1 leading-tight">Por conta de anúncio</p>
-                            </div>
-                            <div>
-                                <Label>Conjuntos</Label>
-                                <Input type="number" min={1} max={50} value={structure.adSets} onChange={(e) => setStructure({ ...structure, adSets: Math.max(1, parseInt(e.target.value) || 1) })} />
-                                <p className="text-[10px] text-muted-foreground mt-1 leading-tight">Para cada criativo</p>
-                            </div>
-                            <div>
-                                <Label>Anúncios</Label>
-                                <Input type="number" min={1} max={50} value={structure.ads} onChange={(e) => setStructure({ ...structure, ads: Math.max(1, parseInt(e.target.value) || 1) })} />
-                                <p className="text-[10px] text-muted-foreground mt-1 leading-tight">Por cada conjunto</p>
-                            </div>
-                        </div>
-                        <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 text-center min-w-[220px]">
-                            <p className="text-sm font-medium">Sua Estrutura</p>
-                            <p className="text-3xl font-black text-primary mt-1 tracking-tight">
-                                {structure.campaigns}x{structure.adSets}x{structure.ads}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1">Campanhas × Conjuntos × Anúncios</p>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
+                    <DialogFooter>
+                        <Button onClick={() => setGalleryAdSet(null)}>Concluir</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 
@@ -1009,8 +935,44 @@ export default function BulkCreationPage() {
                     <div><Label>Optimization Goal</Label><Select value={adSetConfig.optimization_goal} onValueChange={(v) => setAdSetConfig({ ...adSetConfig, optimization_goal: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="OFFSITE_CONVERSIONS">Conversões</SelectItem><SelectItem value="LINK_CLICKS">Cliques no Link</SelectItem><SelectItem value="LANDING_PAGE_VIEWS">Visualizações da Página</SelectItem></SelectContent></Select></div>
                     <div><Label>Bid Strategy</Label><Select value={adSetConfig.bid_strategy} onValueChange={(v) => setAdSetConfig({ ...adSetConfig, bid_strategy: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="LOWEST_COST_WITHOUT_CAP">Menor Custo</SelectItem><SelectItem value="COST_CAP">Custo Alvo</SelectItem></SelectContent></Select></div>
                 </div>
+                <div>
+                    <Label>Anunciante (transparência do anúncio)</Label>
+                    <div className="flex gap-2">
+                        <Select value={adSetConfig.dsa_advertiser_id} onValueChange={(v) => setAdSetConfig({ ...adSetConfig, dsa_advertiser_id: v })}>
+                            <SelectTrigger className="flex-1"><SelectValue placeholder={advertisersVisiveis.length ? "Selecionar anunciante..." : "Nenhum anunciante cadastrado para esta BM"} /></SelectTrigger>
+                            <SelectContent>{advertisersVisiveis.map((a) => (<SelectItem key={a.id} value={a.id}>🏢 {a.name}</SelectItem>))}</SelectContent>
+                        </Select>
+                        <Button type="button" variant="outline" size="icon" title="Cadastrar anunciante" onClick={() => { setAdvForm({ business_manager_id: bmsSelecionadas.size === 1 ? [...bmsSelecionadas][0] : "", name: "", beneficiary: "", payor: "" }); setShowAdvDialog(true); }}><Plus className="w-4 h-4" /></Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">Beneficiário/pagador exibido na transparência. Resolve "O anunciante está ausente" em conta USD mirando só o Brasil.</p>
+                </div>
             </CardContent>
-        </Card></div>
+        </Card>
+
+                <Dialog open={showAdvDialog} onOpenChange={setShowAdvDialog}>
+                    <DialogContent>
+                        <DialogHeader><DialogTitle>Cadastrar anunciante</DialogTitle></DialogHeader>
+                        <div className="space-y-4 py-2">
+                            <div>
+                                <Label>Portfólio (BM) *</Label>
+                                <Select value={advForm.business_manager_id} onValueChange={(v) => setAdvForm({ ...advForm, business_manager_id: v })}>
+                                    <SelectTrigger><SelectValue placeholder="Selecionar BM..." /></SelectTrigger>
+                                    <SelectContent>{(businessManagers || []).map((bm) => (<SelectItem key={bm.id} value={bm.id}>{bm.name}</SelectItem>))}</SelectContent>
+                                </Select>
+                            </div>
+                            <div><Label>Nome (rótulo) *</Label><Input value={advForm.name} onChange={(e) => setAdvForm({ ...advForm, name: e.target.value })} placeholder="Ex: UVEPOM Marketing" /></div>
+                            <div><Label>Anunciante / beneficiário *</Label><Input value={advForm.beneficiary} onChange={(e) => setAdvForm({ ...advForm, beneficiary: e.target.value })} placeholder="Razão social exibida na transparência" /></div>
+                            <div><Label>Pagador</Label><Input value={advForm.payor} onChange={(e) => setAdvForm({ ...advForm, payor: e.target.value })} placeholder="Vazio = usa o mesmo do anunciante" /></div>
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setShowAdvDialog(false)}>Cancelar</Button>
+                            <Button onClick={() => createAdvertiserMutation.mutate()} disabled={!advForm.business_manager_id || !advForm.name.trim() || !advForm.beneficiary.trim() || createAdvertiserMutation.isPending}>
+                                {createAdvertiserMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}Cadastrar
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+        </div>
     );
 
     // ════════════════════════════════════════
@@ -1247,7 +1209,7 @@ export default function BulkCreationPage() {
     // ════════════════════════════════════════
     // Auto-redirect after 4 seconds
     useEffect(() => {
-        if (step === 5) {
+        if (step === 4) {
             const timer = setTimeout(() => navigate("/executions"), 4000);
             return () => clearTimeout(timer);
         }
@@ -1275,7 +1237,7 @@ export default function BulkCreationPage() {
         </div>
     );
 
-    const renderCurrentStep = () => { switch (step) { case 0: return renderStep0(); case 1: return renderStep1(); case 2: return renderStep2(); case 3: return renderStep3(); case 4: return renderStep4(); case 5: return renderStep5(); default: return null; } };
+    const renderCurrentStep = () => { switch (step) { case 0: return <div className="space-y-6">{renderStep0()}{renderStep1()}</div>; case 1: return renderStep2(); case 2: return renderStep3(); case 3: return renderStep4(); case 4: return renderStep5(); default: return null; } };
 
 
     // ════════════════════════════════════════
@@ -1315,21 +1277,13 @@ export default function BulkCreationPage() {
                     </div>
                     <div className="rounded-lg border bg-card p-2.5 text-center">
                         <Layers className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
-                        <p className="text-lg font-bold">
-                            {totalCampaigns > 0 ? totalSets : setsPerCampaign > 0 ? setsPerCampaign : 0}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground leading-tight">
-                            {totalCampaigns > 0 ? "Conjuntos" : setsPerCampaign > 0 ? "Conj./campanha" : "Conjuntos"}
-                        </p>
+                        <p className="text-lg font-bold">{totalSets || <span className="text-muted-foreground">—</span>}</p>
+                        <p className="text-[10px] text-muted-foreground leading-tight">Conjuntos</p>
                     </div>
                     <div className="rounded-lg border bg-card p-2.5 text-center">
                         <FileImage className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
-                        <p className="text-lg font-bold">
-                            {totalCampaigns > 0 ? totalAds : setsPerCampaign > 0 ? setsPerCampaign : 0}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground leading-tight">
-                            {totalCampaigns > 0 ? "Anúncios" : setsPerCampaign > 0 ? "Anún./campanha" : "Anúncios"}
-                        </p>
+                        <p className="text-lg font-bold">{totalAds || <span className="text-muted-foreground">—</span>}</p>
+                        <p className="text-[10px] text-muted-foreground leading-tight">Anúncios</p>
                     </div>
                 </div>
 
@@ -1464,7 +1418,7 @@ export default function BulkCreationPage() {
         );
     };
 
-    const showSidebar = step < 4;
+    const showSidebar = step < 3;
 
     return (
         <div className="animate-fade-in">
@@ -1518,7 +1472,7 @@ export default function BulkCreationPage() {
                     renderCurrentStep()
                 )}
 
-                {step < 4 && (
+                {step < 3 && (
                     <div className="flex justify-between mt-6">
                         <Button variant="outline" onClick={() => setStep(step - 1)} disabled={step === 0}><ArrowLeft className="w-4 h-4 mr-2" />Voltar</Button>
                         <div className="flex items-center gap-4">
