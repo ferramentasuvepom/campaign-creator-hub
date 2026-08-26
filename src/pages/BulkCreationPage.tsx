@@ -839,8 +839,10 @@ export default function BulkCreationPage() {
                                         const df = driveFiles.find((d) => d.id === f.driveFileId);
                                         const checked = !!set.ads.find((a) => a.driveFileId === f.driveFileId);
                                         return (
-                                            <button key={f.driveFileId} type="button" onClick={() => toggleAdInSet(galleryAdSet.campUid, galleryAdSet.setUid, f.driveFileId)}
-                                                className={`text-left border rounded-lg overflow-hidden transition-all ${checked ? "border-primary ring-2 ring-primary/40" : "hover:border-primary/40"}`}>
+                                            <div key={f.driveFileId} role="button" tabIndex={0}
+                                                onClick={() => toggleAdInSet(galleryAdSet.campUid, galleryAdSet.setUid, f.driveFileId)}
+                                                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleAdInSet(galleryAdSet.campUid, galleryAdSet.setUid, f.driveFileId); } }}
+                                                className={`cursor-pointer text-left border rounded-lg overflow-hidden transition-all ${checked ? "border-primary ring-2 ring-primary/40" : "hover:border-primary/40"}`}>
                                                 <div className="aspect-video bg-muted flex items-center justify-center overflow-hidden">
                                                     {df?.thumbnailLink ? <img src={df.thumbnailLink} alt={f.fileName} className="w-full h-full object-cover" /> : <FileImage className="w-8 h-8 text-muted-foreground" />}
                                                 </div>
@@ -851,7 +853,7 @@ export default function BulkCreationPage() {
                                                     </div>
                                                     <Badge variant="outline" className="text-[9px]">📁 {f.folderLabel || "Pasta"}</Badge>
                                                 </div>
-                                            </button>
+                                            </div>
                                         );
                                     })}
                                 </div>
