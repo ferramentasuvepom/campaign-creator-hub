@@ -970,7 +970,7 @@ export default function BulkCreationPage() {
                                 {bmsDisponiveis.map((bm) => (<SelectItem key={`bm-${bm.id}`} value={`__bm__${bm.id}`}>➕ Usar a BM da conta — {bm.name}</SelectItem>))}
                             </SelectContent>
                         </Select>
-                        <Button type="button" variant="outline" size="icon" title="Cadastrar anunciante" onClick={() => { setAdvModo("full"); const bmId = bmsSelecionadas.size === 1 ? [...bmsSelecionadas][0] : ""; const bm = (businessManagers || []).find((b) => String(b.id) === String(bmId)); setAdvForm({ business_manager_id: bmId, name: "", beneficiary: "", payor: "", verified_identity_id: String(bm?.business_manager_id || ""), payor_identity_id: "" }); setShowAdvDialog(true); }}><Plus className="w-4 h-4" /></Button>
+                        <Button type="button" variant="outline" size="icon" title="Cadastrar anunciante" onClick={() => { setAdvModo("full"); const bmId = bmsSelecionadas.size === 1 ? [...bmsSelecionadas][0] : ""; setAdvForm({ business_manager_id: bmId, name: "", beneficiary: "", payor: "", verified_identity_id: "", payor_identity_id: "" }); setShowAdvDialog(true); }}><Plus className="w-4 h-4" /></Button>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">Beneficiário/pagador exibido na transparência. Resolve "O anunciante está ausente" em conta USD mirando só o Brasil.</p>
                 </div>
@@ -990,7 +990,7 @@ export default function BulkCreationPage() {
                             {advModo === "full" && (
                             <div>
                                 <Label>Portfólio (BM) *</Label>
-                                <Select value={advForm.business_manager_id} onValueChange={(v) => { const bm = (businessManagers || []).find((b) => String(b.id) === String(v)); setAdvForm((prev) => ({ ...prev, business_manager_id: v, verified_identity_id: prev.verified_identity_id.trim() || String(bm?.business_manager_id || "") })); }}>
+                                <Select value={advForm.business_manager_id} onValueChange={(v) => setAdvForm((prev) => ({ ...prev, business_manager_id: v }))}>
                                     <SelectTrigger><SelectValue placeholder="Selecionar BM..." /></SelectTrigger>
                                     <SelectContent>{(businessManagers || []).map((bm) => (<SelectItem key={bm.id} value={bm.id}>{bm.name}</SelectItem>))}</SelectContent>
                                 </Select>
