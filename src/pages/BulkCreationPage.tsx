@@ -44,7 +44,7 @@ interface Pixel { id: string; name: string; pixel_id: string; }
 interface AdPage { id: string; page_id: string; name: string; business_manager_id: string | null; }
 interface InstagramAccount { id: string; instagram_actor_id: string; name: string; business_manager_id: string | null; }
 interface Website { id: string; name: string; url: string; business_manager_id: string | null; }
-interface Advertiser { id: string; name: string; beneficiary: string; payor: string | null; business_manager_id: string | null; }
+interface Advertiser { id: string; name: string; beneficiary: string; payor: string | null; verified_identity_id: string | null; business_manager_id: string | null; }
 interface TreeAd { uid: string; driveFileId: string; name: string; headline: string; call_to_action: string; website_id: string; }
 interface TreeAdSet { uid: string; name: string; ads: TreeAd[]; }
 interface TreeCampaign { uid: string; name: string; ad_account_id: string; objective: string; daily_budget: string; bid_strategy: string; ad_sets: TreeAdSet[]; }
@@ -69,7 +69,7 @@ export default function BulkCreationPage() {
     const [executionId, setExecutionId] = useState<string | null>(null);
     const [showSaveDialog, setShowSaveDialog] = useState(false);
     const [showAdvDialog, setShowAdvDialog] = useState(false);
-    const [advForm, setAdvForm] = useState({ business_manager_id: "", name: "", beneficiary: "", payor: "" });
+    const [advForm, setAdvForm] = useState({ business_manager_id: "", name: "", beneficiary: "", payor: "", verified_identity_id: "" });
     const [templateName, setTemplateName] = useState("");
     const [templateDesc, setTemplateDesc] = useState("");
     const [appliedTemplateName, setAppliedTemplateName] = useState<string | null>(null);
@@ -193,7 +193,7 @@ export default function BulkCreationPage() {
     const { data: adPages } = useQuery({ queryKey: ["ad_pages"], queryFn: async () => { const { data, error } = await supabase.from("ad_pages").select("id, page_id, name, business_manager_id"); if (error) throw error; return data as AdPage[]; } });
     const { data: instagramAccounts } = useQuery({ queryKey: ["instagram_accounts"], queryFn: async () => { const { data, error } = await supabase.from("instagram_accounts").select("id, instagram_actor_id, name, business_manager_id"); if (error) throw error; return data as InstagramAccount[]; } });
     const { data: websites } = useQuery({ queryKey: ["websites"], queryFn: async () => { const { data, error } = await supabase.from("websites").select("id, name, url, business_manager_id"); if (error) throw error; return data as Website[]; } });
-    const { data: advertisers } = useQuery({ queryKey: ["advertisers"], queryFn: async () => { const { data, error } = await supabase.from("advertisers").select("id, name, beneficiary, payor, business_manager_id"); if (error) throw error; return data as Advertiser[]; } });
+    const { data: advertisers } = useQuery({ queryKey: ["advertisers"], queryFn: async () => { const { data, error } = await supabase.from("advertisers").select("id, name, beneficiary, payor, verified_identity_id, business_manager_id"); if (error) throw error; return data as Advertiser[]; } });
     const { data: businessManagers } = useQuery({ queryKey: ["business_managers"], queryFn: async () => { const { data, error } = await supabase.from("business_managers").select("id, name"); if (error) throw error; return data as { id: string; name: string }[]; } });
     const createAdvertiserMutation = useMutation({
         mutationFn: async () => {
@@ -202,6 +202,7 @@ export default function BulkCreationPage() {
                 name: advForm.name.trim(),
                 beneficiary: advForm.beneficiary.trim(),
                 payor: advForm.payor.trim() || null,
+                verified_identity_id: advForm.verified_identity_id.trim() || null,
             }).select("id").single();
             if (error) throw error;
             return data;
@@ -505,10 +506,9 @@ export default function BulkCreationPage() {
             const currentExecutionId = exec.id;
             setExecutionId(String(currentExecutionId));
 
-            // Anunciante (transparência) — config global do conjunto, igual para todos
+            // Anunciante (transparência) — Brasil usa ID de identidade verificada (regional_regulation_identities).
             const dsaAdv = advertisers?.find((a) => String(a.id) === String(adSetConfig.dsa_advertiser_id));
-            const dsaBeneficiary = dsaAdv?.beneficiary?.trim() || null;
-            const dsaPayor = dsaAdv?.payor?.trim() || dsaBeneficiary;
+            const regBeneficiaryId = dsaAdv?.verified_identity_id?.trim() || null;
 
             // Percorre a árvore: cria cada campanha, seus conjuntos e os anúncios escolhidos
             const webhookCampaigns: any[] = [];
@@ -538,8 +538,6 @@ export default function BulkCreationPage() {
                             age_min: parseInt(adSetConfig.age_min), age_max: parseInt(adSetConfig.age_max),
                             genders: gendersArray, targeting_countries: countriesArray,
                             dsa_advertiser_id: adSetConfig.dsa_advertiser_id ? Number(adSetConfig.dsa_advertiser_id) : null,
-                            dsa_beneficiary: dsaBeneficiary,
-                            dsa_payor: dsaPayor,
                             execution_id: currentExecutionId,
                         }).select("id").single();
                     if (setError) throw setError;
@@ -598,8 +596,8 @@ export default function BulkCreationPage() {
                         bid_strategy: adSetConfig.bid_strategy,
                         promoted_object: resolvedPixel ? { pixel_id: resolvedPixel.pixel_id, custom_event_type: "PURCHASE" } : undefined,
                         targeting_automation: { advantage_audience: 1 },
-                        dsa_beneficiary: dsaBeneficiary,
-                        dsa_payor: dsaPayor,
+                        regulated_beneficiary_id: regBeneficiaryId,
+                        regulated_payer_id: regBeneficiaryId,
                         ads: localAds,
                     });
                 }
@@ -841,8 +839,10 @@ export default function BulkCreationPage() {
                                         const df = driveFiles.find((d) => d.id === f.driveFileId);
                                         const checked = !!set.ads.find((a) => a.driveFileId === f.driveFileId);
                                         return (
-                                            <button key={f.driveFileId} type="button" onClick={() => toggleAdInSet(galleryAdSet.campUid, galleryAdSet.setUid, f.driveFileId)}
-                                                className={`text-left border rounded-lg overflow-hidden transition-all ${checked ? "border-primary ring-2 ring-primary/40" : "hover:border-primary/40"}`}>
+                                            <div key={f.driveFileId} role="button" tabIndex={0}
+                                                onClick={() => toggleAdInSet(galleryAdSet.campUid, galleryAdSet.setUid, f.driveFileId)}
+                                                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleAdInSet(galleryAdSet.campUid, galleryAdSet.setUid, f.driveFileId); } }}
+                                                className={`cursor-pointer text-left border rounded-lg overflow-hidden transition-all ${checked ? "border-primary ring-2 ring-primary/40" : "hover:border-primary/40"}`}>
                                                 <div className="aspect-video bg-muted flex items-center justify-center overflow-hidden">
                                                     {df?.thumbnailLink ? <img src={df.thumbnailLink} alt={f.fileName} className="w-full h-full object-cover" /> : <FileImage className="w-8 h-8 text-muted-foreground" />}
                                                 </div>
@@ -853,7 +853,7 @@ export default function BulkCreationPage() {
                                                     </div>
                                                     <Badge variant="outline" className="text-[9px]">📁 {f.folderLabel || "Pasta"}</Badge>
                                                 </div>
-                                            </button>
+                                            </div>
                                         );
                                     })}
                                 </div>
@@ -942,7 +942,7 @@ export default function BulkCreationPage() {
                             <SelectTrigger className="flex-1"><SelectValue placeholder={advertisersVisiveis.length ? "Selecionar anunciante..." : "Nenhum anunciante cadastrado para esta BM"} /></SelectTrigger>
                             <SelectContent>{advertisersVisiveis.map((a) => (<SelectItem key={a.id} value={a.id}>🏢 {a.name}</SelectItem>))}</SelectContent>
                         </Select>
-                        <Button type="button" variant="outline" size="icon" title="Cadastrar anunciante" onClick={() => { setAdvForm({ business_manager_id: bmsSelecionadas.size === 1 ? [...bmsSelecionadas][0] : "", name: "", beneficiary: "", payor: "" }); setShowAdvDialog(true); }}><Plus className="w-4 h-4" /></Button>
+                        <Button type="button" variant="outline" size="icon" title="Cadastrar anunciante" onClick={() => { setAdvForm({ business_manager_id: bmsSelecionadas.size === 1 ? [...bmsSelecionadas][0] : "", name: "", beneficiary: "", payor: "", verified_identity_id: "" }); setShowAdvDialog(true); }}><Plus className="w-4 h-4" /></Button>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">Beneficiário/pagador exibido na transparência. Resolve "O anunciante está ausente" em conta USD mirando só o Brasil.</p>
                 </div>
@@ -961,12 +961,17 @@ export default function BulkCreationPage() {
                                 </Select>
                             </div>
                             <div><Label>Nome (rótulo) *</Label><Input value={advForm.name} onChange={(e) => setAdvForm({ ...advForm, name: e.target.value })} placeholder="Ex: UVEPOM Marketing" /></div>
-                            <div><Label>Anunciante / beneficiário *</Label><Input value={advForm.beneficiary} onChange={(e) => setAdvForm({ ...advForm, beneficiary: e.target.value })} placeholder="Razão social exibida na transparência" /></div>
-                            <div><Label>Pagador</Label><Input value={advForm.payor} onChange={(e) => setAdvForm({ ...advForm, payor: e.target.value })} placeholder="Vazio = usa o mesmo do anunciante" /></div>
+                            <div><Label>Anunciante / razão social *</Label><Input value={advForm.beneficiary} onChange={(e) => setAdvForm({ ...advForm, beneficiary: e.target.value })} placeholder="Nome legal exibido na transparência" /></div>
+                            <div>
+                                <Label>ID verificado da Meta *</Label>
+                                <Input value={advForm.verified_identity_id} onChange={(e) => setAdvForm({ ...advForm, verified_identity_id: e.target.value })} placeholder="Ex: 905356978426553" />
+                                <p className="text-xs text-muted-foreground mt-1">ID da entidade verificada (universal_beneficiary). Normalmente é o ID do negócio da conta — Configurações do negócio → Informações do negócio.</p>
+                            </div>
+                            <div><Label>Pagador (razão social)</Label><Input value={advForm.payor} onChange={(e) => setAdvForm({ ...advForm, payor: e.target.value })} placeholder="Vazio = usa o mesmo do anunciante" /></div>
                         </div>
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setShowAdvDialog(false)}>Cancelar</Button>
-                            <Button onClick={() => createAdvertiserMutation.mutate()} disabled={!advForm.business_manager_id || !advForm.name.trim() || !advForm.beneficiary.trim() || createAdvertiserMutation.isPending}>
+                            <Button onClick={() => createAdvertiserMutation.mutate()} disabled={!advForm.business_manager_id || !advForm.name.trim() || !advForm.beneficiary.trim() || !advForm.verified_identity_id.trim() || createAdvertiserMutation.isPending}>
                                 {createAdvertiserMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}Cadastrar
                             </Button>
                         </DialogFooter>
