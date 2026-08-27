@@ -194,7 +194,7 @@ export default function BulkCreationPage() {
     const { data: instagramAccounts } = useQuery({ queryKey: ["instagram_accounts"], queryFn: async () => { const { data, error } = await supabase.from("instagram_accounts").select("id, instagram_actor_id, name, business_manager_id"); if (error) throw error; return data as InstagramAccount[]; } });
     const { data: websites } = useQuery({ queryKey: ["websites"], queryFn: async () => { const { data, error } = await supabase.from("websites").select("id, name, url, business_manager_id"); if (error) throw error; return data as Website[]; } });
     const { data: advertisers } = useQuery({ queryKey: ["advertisers"], queryFn: async () => { const { data, error } = await supabase.from("advertisers").select("id, name, beneficiary, payor, verified_identity_id, payor_identity_id, business_manager_id"); if (error) throw error; return data as Advertiser[]; } });
-    const { data: businessManagers } = useQuery({ queryKey: ["business_managers"], queryFn: async () => { const { data, error } = await supabase.from("business_managers").select("id, name"); if (error) throw error; return data as { id: string; name: string }[]; } });
+    const { data: businessManagers } = useQuery({ queryKey: ["business_managers"], queryFn: async () => { const { data, error } = await supabase.from("business_managers").select("id, name, business_manager_id"); if (error) throw error; return data as { id: string; name: string; business_manager_id: string }[]; } });
     const createAdvertiserMutation = useMutation({
         mutationFn: async () => {
             const { data, error } = await supabase.from("advertisers").insert({
@@ -945,7 +945,7 @@ export default function BulkCreationPage() {
                             <SelectTrigger className="flex-1"><SelectValue placeholder={advertisersVisiveis.length ? "Selecionar anunciante..." : "Nenhum anunciante cadastrado para esta BM"} /></SelectTrigger>
                             <SelectContent>{advertisersVisiveis.map((a) => (<SelectItem key={a.id} value={a.id}>🏢 {a.name}</SelectItem>))}</SelectContent>
                         </Select>
-                        <Button type="button" variant="outline" size="icon" title="Cadastrar anunciante" onClick={() => { setAdvForm({ business_manager_id: bmsSelecionadas.size === 1 ? [...bmsSelecionadas][0] : "", name: "", beneficiary: "", payor: "", verified_identity_id: "", payor_identity_id: "" }); setShowAdvDialog(true); }}><Plus className="w-4 h-4" /></Button>
+                        <Button type="button" variant="outline" size="icon" title="Cadastrar anunciante" onClick={() => { const bmId = bmsSelecionadas.size === 1 ? [...bmsSelecionadas][0] : ""; const bm = (businessManagers || []).find((b) => String(b.id) === String(bmId)); setAdvForm({ business_manager_id: bmId, name: "", beneficiary: "", payor: "", verified_identity_id: String(bm?.business_manager_id || ""), payor_identity_id: "" }); setShowAdvDialog(true); }}><Plus className="w-4 h-4" /></Button>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">Beneficiário/pagador exibido na transparência. Resolve "O anunciante está ausente" em conta USD mirando só o Brasil.</p>
                 </div>
@@ -958,7 +958,7 @@ export default function BulkCreationPage() {
                         <div className="space-y-4 py-2">
                             <div>
                                 <Label>Portfólio (BM) *</Label>
-                                <Select value={advForm.business_manager_id} onValueChange={(v) => setAdvForm({ ...advForm, business_manager_id: v })}>
+                                <Select value={advForm.business_manager_id} onValueChange={(v) => { const bm = (businessManagers || []).find((b) => String(b.id) === String(v)); setAdvForm((prev) => ({ ...prev, business_manager_id: v, verified_identity_id: prev.verified_identity_id.trim() || String(bm?.business_manager_id || "") })); }}>
                                     <SelectTrigger><SelectValue placeholder="Selecionar BM..." /></SelectTrigger>
                                     <SelectContent>{(businessManagers || []).map((bm) => (<SelectItem key={bm.id} value={bm.id}>{bm.name}</SelectItem>))}</SelectContent>
                                 </Select>
