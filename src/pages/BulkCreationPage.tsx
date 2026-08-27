@@ -401,6 +401,12 @@ export default function BulkCreationPage() {
     const websitesVisiveis = daBM(websites);
     const advertisersVisiveis = daBM(advertisers);
     // BMs das contas escolhidas que ainda nao tem anunciante cadastrado — viram atalho no dropdown
+    // Rotulo do anunciante: quando o beneficiario e a propria BM da conta, deixa isso explicito
+    const rotuloAnunciante = (a: Advertiser) => {
+        const bm = (businessManagers || []).find((b) => String(b.id) === String(a.business_manager_id));
+        const ehEmpresaDaConta = !!bm && String(a.verified_identity_id || "") === String(bm.business_manager_id || "");
+        return ehEmpresaDaConta ? `${a.name} (Empresa da conta "${bm!.name}")` : a.name;
+    };
     const bmsDisponiveis = (businessManagers || []).filter(
         (bm) => bmsSelecionadas.has(String(bm.id))
             && !advertisersVisiveis.some((a) => String(a.verified_identity_id || "") === String(bm.business_manager_id || ""))
@@ -960,7 +966,7 @@ export default function BulkCreationPage() {
                         }}>
                             <SelectTrigger className="flex-1"><SelectValue placeholder={advertisersVisiveis.length ? "Selecionar anunciante..." : "Selecionar anunciante..."} /></SelectTrigger>
                             <SelectContent>
-                                {advertisersVisiveis.map((a) => (<SelectItem key={a.id} value={a.id}>🏢 {a.name}</SelectItem>))}
+                                {advertisersVisiveis.map((a) => (<SelectItem key={a.id} value={a.id}>🏢 {rotuloAnunciante(a)}</SelectItem>))}
                                 {bmsDisponiveis.map((bm) => (<SelectItem key={`bm-${bm.id}`} value={`__bm__${bm.id}`}>➕ Usar a BM da conta — {bm.name}</SelectItem>))}
                             </SelectContent>
                         </Select>
