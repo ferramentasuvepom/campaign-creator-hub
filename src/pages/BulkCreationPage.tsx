@@ -70,6 +70,7 @@ export default function BulkCreationPage() {
     const [showSaveDialog, setShowSaveDialog] = useState(false);
     const [showAdvDialog, setShowAdvDialog] = useState(false);
     const [advForm, setAdvForm] = useState({ business_manager_id: "", name: "", beneficiary: "", payor: "", verified_identity_id: "", payor_identity_id: "" });
+    const [advModo, setAdvModo] = useState<"full" | "bm">("full");
     const [templateName, setTemplateName] = useState("");
     const [templateDesc, setTemplateDesc] = useState("");
     const [appliedTemplateName, setAppliedTemplateName] = useState<string | null>(null);
@@ -199,7 +200,7 @@ export default function BulkCreationPage() {
         mutationFn: async () => {
             const { data, error } = await supabase.from("advertisers").insert({
                 business_manager_id: advForm.business_manager_id ? Number(advForm.business_manager_id) : null,
-                name: advForm.name.trim(),
+                name: advForm.name.trim() || advForm.beneficiary.trim(),
                 beneficiary: advForm.beneficiary.trim(),
                 payor: advForm.payor.trim() || null,
                 verified_identity_id: advForm.verified_identity_id.trim() || null,
@@ -399,6 +400,11 @@ export default function BulkCreationPage() {
     const instagramVisiveis = daBM(instagramAccounts);
     const websitesVisiveis = daBM(websites);
     const advertisersVisiveis = daBM(advertisers);
+    // BMs das contas escolhidas que ainda nao tem anunciante cadastrado — viram atalho no dropdown
+    const bmsDisponiveis = (businessManagers || []).filter(
+        (bm) => bmsSelecionadas.has(String(bm.id))
+            && !advertisersVisiveis.some((a) => String(a.verified_identity_id || "") === String(bm.business_manager_id || ""))
+    );
 
     // Trocar de conta muda a BM: o que ja estava escolhido pode nao pertencer
     // mais a ela. Limpa as escolhas que sumiram da lista, senao o anuncio sobe
@@ -941,11 +947,24 @@ export default function BulkCreationPage() {
                 <div>
                     <Label>Anunciante (transparência do anúncio)</Label>
                     <div className="flex gap-2">
-                        <Select value={adSetConfig.dsa_advertiser_id} onValueChange={(v) => setAdSetConfig({ ...adSetConfig, dsa_advertiser_id: v })}>
-                            <SelectTrigger className="flex-1"><SelectValue placeholder={advertisersVisiveis.length ? "Selecionar anunciante..." : "Nenhum anunciante cadastrado para esta BM"} /></SelectTrigger>
-                            <SelectContent>{advertisersVisiveis.map((a) => (<SelectItem key={a.id} value={a.id}>🏢 {a.name}</SelectItem>))}</SelectContent>
+                        <Select value={adSetConfig.dsa_advertiser_id} onValueChange={(v) => {
+                            if (v.startsWith("__bm__")) {
+                                const bmId = v.slice(6);
+                                const bm = (businessManagers || []).find((b) => String(b.id) === String(bmId));
+                                setAdvModo("bm");
+                                setAdvForm({ business_manager_id: bmId, name: "", beneficiary: "", payor: "", verified_identity_id: String(bm?.business_manager_id || ""), payor_identity_id: "" });
+                                setShowAdvDialog(true);
+                                return;
+                            }
+                            setAdSetConfig({ ...adSetConfig, dsa_advertiser_id: v });
+                        }}>
+                            <SelectTrigger className="flex-1"><SelectValue placeholder={advertisersVisiveis.length ? "Selecionar anunciante..." : "Selecionar anunciante..."} /></SelectTrigger>
+                            <SelectContent>
+                                {advertisersVisiveis.map((a) => (<SelectItem key={a.id} value={a.id}>🏢 {a.name}</SelectItem>))}
+                                {bmsDisponiveis.map((bm) => (<SelectItem key={`bm-${bm.id}`} value={`__bm__${bm.id}`}>➕ Usar a BM da conta — {bm.name}</SelectItem>))}
+                            </SelectContent>
                         </Select>
-                        <Button type="button" variant="outline" size="icon" title="Cadastrar anunciante" onClick={() => { const bmId = bmsSelecionadas.size === 1 ? [...bmsSelecionadas][0] : ""; const bm = (businessManagers || []).find((b) => String(b.id) === String(bmId)); setAdvForm({ business_manager_id: bmId, name: "", beneficiary: "", payor: "", verified_identity_id: String(bm?.business_manager_id || ""), payor_identity_id: "" }); setShowAdvDialog(true); }}><Plus className="w-4 h-4" /></Button>
+                        <Button type="button" variant="outline" size="icon" title="Cadastrar anunciante" onClick={() => { setAdvModo("full"); const bmId = bmsSelecionadas.size === 1 ? [...bmsSelecionadas][0] : ""; const bm = (businessManagers || []).find((b) => String(b.id) === String(bmId)); setAdvForm({ business_manager_id: bmId, name: "", beneficiary: "", payor: "", verified_identity_id: String(bm?.business_manager_id || ""), payor_identity_id: "" }); setShowAdvDialog(true); }}><Plus className="w-4 h-4" /></Button>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">Beneficiário/pagador exibido na transparência. Resolve "O anunciante está ausente" em conta USD mirando só o Brasil.</p>
                 </div>
@@ -954,8 +973,15 @@ export default function BulkCreationPage() {
 
                 <Dialog open={showAdvDialog} onOpenChange={setShowAdvDialog}>
                     <DialogContent>
-                        <DialogHeader><DialogTitle>Cadastrar anunciante</DialogTitle></DialogHeader>
+                        <DialogHeader><DialogTitle>{advModo === "bm" ? "Usar a BM da conta como anunciante" : "Cadastrar anunciante"}</DialogTitle></DialogHeader>
                         <div className="space-y-4 py-2">
+                            {advModo === "bm" && (
+                                <div className="rounded-lg border bg-muted/30 p-3">
+                                    <p className="text-sm">🏢 {(businessManagers || []).find((b) => String(b.id) === String(advForm.business_manager_id))?.name || "BM da conta"}</p>
+                                    <p className="text-xs text-muted-foreground mt-1">A Meta usa o ID verificado deste portfólio como anunciante. Só falta o nome da empresa para exibirmos aqui.</p>
+                                </div>
+                            )}
+                            {advModo === "full" && (
                             <div>
                                 <Label>Portfólio (BM) *</Label>
                                 <Select value={advForm.business_manager_id} onValueChange={(v) => { const bm = (businessManagers || []).find((b) => String(b.id) === String(v)); setAdvForm((prev) => ({ ...prev, business_manager_id: v, verified_identity_id: prev.verified_identity_id.trim() || String(bm?.business_manager_id || "") })); }}>
@@ -963,23 +989,30 @@ export default function BulkCreationPage() {
                                     <SelectContent>{(businessManagers || []).map((bm) => (<SelectItem key={bm.id} value={bm.id}>{bm.name}</SelectItem>))}</SelectContent>
                                 </Select>
                             </div>
-                            <div><Label>Nome (rótulo) *</Label><Input value={advForm.name} onChange={(e) => setAdvForm({ ...advForm, name: e.target.value })} placeholder="Ex: UVEPOM Marketing" /></div>
+                            )}
+                            {advModo === "full" && (
+                            <div><Label>Nome (rótulo)</Label><Input value={advForm.name} onChange={(e) => setAdvForm({ ...advForm, name: e.target.value })} placeholder="Vazio = usa a razão social" /></div>
+                            )}
                             <div><Label>Anunciante / razão social *</Label><Input value={advForm.beneficiary} onChange={(e) => setAdvForm({ ...advForm, beneficiary: e.target.value })} placeholder="Nome legal exibido na transparência" /></div>
+                            {advModo === "full" && (
                             <div>
                                 <Label>ID verificado da Meta *</Label>
                                 <Input value={advForm.verified_identity_id} onChange={(e) => setAdvForm({ ...advForm, verified_identity_id: e.target.value })} placeholder="Ex: 905356978426553" />
                                 <p className="text-xs text-muted-foreground mt-1">ID da entidade verificada (universal_beneficiary). Normalmente é o ID do negócio da conta — Configurações do negócio → Informações do negócio.</p>
                             </div>
+                            )}
                             <div><Label>Pagador (razão social)</Label><Input value={advForm.payor} onChange={(e) => setAdvForm({ ...advForm, payor: e.target.value })} placeholder="Vazio = usa o mesmo do anunciante" /></div>
+                            {advModo === "full" && (
                             <div>
                                 <Label>ID do pagador (se diferente)</Label>
                                 <Input value={advForm.payor_identity_id} onChange={(e) => setAdvForm({ ...advForm, payor_identity_id: e.target.value })} placeholder="Vazio = usa o ID do anunciante" />
                                 <p className="text-xs text-muted-foreground mt-1">Só preencha se o pagador for uma entidade verificada diferente do anunciante.</p>
                             </div>
+                            )}
                         </div>
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setShowAdvDialog(false)}>Cancelar</Button>
-                            <Button onClick={() => createAdvertiserMutation.mutate()} disabled={!advForm.business_manager_id || !advForm.name.trim() || !advForm.beneficiary.trim() || !advForm.verified_identity_id.trim() || createAdvertiserMutation.isPending}>
+                            <Button onClick={() => createAdvertiserMutation.mutate()} disabled={!advForm.business_manager_id || !advForm.beneficiary.trim() || !advForm.verified_identity_id.trim() || createAdvertiserMutation.isPending}>
                                 {createAdvertiserMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}Cadastrar
                             </Button>
                         </DialogFooter>
