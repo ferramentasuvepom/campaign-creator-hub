@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
@@ -429,7 +429,10 @@ export default function BulkCreationPage() {
     const adPagesVisiveis = daBM(adPages);
     const instagramVisiveis = daBM(instagramAccounts);
     const websitesVisiveis = daBM(websites);
-    const advertisersVisiveis = daBM(advertisers);
+    // Anunciante NAO e ativo da BM: uma empresa terceira pode ser beneficiaria de outra conta.
+    // Por isso nao escondemos — agrupamos entre "desta conta" e "outras empresas".
+    const advertisersDaBM = daBM(advertisers);
+    const advertisersOutros = (advertisers || []).filter((a) => !advertisersDaBM.some((x) => String(x.id) === String(a.id)));
     // BMs das contas escolhidas que ainda nao tem anunciante cadastrado — viram atalho no dropdown
     // Rotulo do anunciante: quando o beneficiario e a propria BM da conta, deixa isso explicito
     const rotuloAnunciante = (a: Advertiser) => {
@@ -439,7 +442,7 @@ export default function BulkCreationPage() {
     };
     const bmsDisponiveis = (businessManagers || []).filter(
         (bm) => bmsSelecionadas.has(String(bm.id))
-            && !advertisersVisiveis.some((a) => String(a.verified_identity_id || "") === String(bm.business_manager_id || ""))
+            && !advertisersDaBM.some((a) => String(a.verified_identity_id || "") === String(bm.business_manager_id || ""))
     );
 
     // Trocar de conta muda a BM: o que ja estava escolhido pode nao pertencer
@@ -994,9 +997,20 @@ export default function BulkCreationPage() {
                             }
                             setAdSetConfig({ ...adSetConfig, dsa_advertiser_id: v });
                         }}>
-                            <SelectTrigger className="flex-1"><SelectValue placeholder={advertisersVisiveis.length ? "Selecionar anunciante..." : "Selecionar anunciante..."} /></SelectTrigger>
+                            <SelectTrigger className="flex-1"><SelectValue placeholder="Selecionar anunciante..." /></SelectTrigger>
                             <SelectContent>
-                                {advertisersVisiveis.map((a) => (<SelectItem key={a.id} value={a.id}>🏢 {rotuloAnunciante(a)}</SelectItem>))}
+                                {advertisersDaBM.length > 0 && (
+                                    <SelectGroup>
+                                        <SelectLabel>Desta conta</SelectLabel>
+                                        {advertisersDaBM.map((a) => (<SelectItem key={a.id} value={a.id}>🏢 {rotuloAnunciante(a)}</SelectItem>))}
+                                    </SelectGroup>
+                                )}
+                                {advertisersOutros.length > 0 && (
+                                    <SelectGroup>
+                                        <SelectLabel>Outras empresas</SelectLabel>
+                                        {advertisersOutros.map((a) => (<SelectItem key={a.id} value={a.id}>🏢 {rotuloAnunciante(a)}</SelectItem>))}
+                                    </SelectGroup>
+                                )}
                                 {bmsDisponiveis.map((bm) => (<SelectItem key={`bm-${bm.id}`} value={`__bm__${bm.id}`}>➕ Usar a BM da conta — {bm.name}</SelectItem>))}
                             </SelectContent>
                         </Select>
@@ -1020,7 +1034,8 @@ export default function BulkCreationPage() {
                             )}
                             {advModo === "full" && (
                             <div>
-                                <Label>Portfólio (BM) *</Label>
+                                <Label>Portfólio (BM) de origem *</Label>
+                                <p className="text-xs text-muted-foreground mb-1.5">Usado para validar o ID e agrupar na lista. O anunciante continua disponível para contas de outras BMs.</p>
                                 <Select value={advForm.business_manager_id} onValueChange={(v) => setAdvForm((prev) => ({ ...prev, business_manager_id: v }))}>
                                     <SelectTrigger><SelectValue placeholder="Selecionar BM..." /></SelectTrigger>
                                     <SelectContent>{(businessManagers || []).map((bm) => (<SelectItem key={bm.id} value={bm.id}>{bm.name}</SelectItem>))}</SelectContent>
