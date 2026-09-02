@@ -67,6 +67,7 @@ VITE_N8N_WEBHOOK_CREATE_AD="https://SEU-WEBHOOK/webhook/create-ad"
 VITE_N8N_WEBHOOK_CREATE_ADSET="https://SEU-WEBHOOK/webhook/create-adset"
 VITE_N8N_WEBHOOK_BULK="https://SEU-WEBHOOK/webhook/create-bulk"
 VITE_N8N_WEBHOOK_LIST_DRIVE="https://SEU-WEBHOOK/webhook/list-drive-files"
+VITE_N8N_WEBHOOK_VALIDATE_ADVERTISER="https://SEU-WEBHOOK/webhook/validate-advertiser"
 ```
 
 > Salvar: `Ctrl+O` → `Enter` → `Ctrl+X`
@@ -89,6 +90,7 @@ docker build \
   --build-arg VITE_N8N_WEBHOOK_LIST_DRIVE="$(grep VITE_N8N_WEBHOOK_LIST_DRIVE .env | cut -d= -f2 | tr -d '"')" \
   --build-arg VITE_N8N_WEBHOOK_CREATE_AD="$(grep VITE_N8N_WEBHOOK_CREATE_AD .env | cut -d= -f2 | tr -d '"')" \
   --build-arg VITE_N8N_WEBHOOK_CREATE_ADSET="$(grep VITE_N8N_WEBHOOK_CREATE_ADSET .env | cut -d= -f2 | tr -d '"')" \
+  --build-arg VITE_N8N_WEBHOOK_VALIDATE_ADVERTISER="$(grep VITE_N8N_WEBHOOK_VALIDATE_ADVERTISER .env | cut -d= -f2 | tr -d '"')" \
   -t campaign-creator-hub:latest .
 ```
 
@@ -192,6 +194,7 @@ docker build \
   --build-arg VITE_N8N_WEBHOOK_LIST_DRIVE="$(grep VITE_N8N_WEBHOOK_LIST_DRIVE .env | cut -d= -f2 | tr -d '"')" \
   --build-arg VITE_N8N_WEBHOOK_CREATE_AD="$(grep VITE_N8N_WEBHOOK_CREATE_AD .env | cut -d= -f2 | tr -d '"')" \
   --build-arg VITE_N8N_WEBHOOK_CREATE_ADSET="$(grep VITE_N8N_WEBHOOK_CREATE_ADSET .env | cut -d= -f2 | tr -d '"')" \
+  --build-arg VITE_N8N_WEBHOOK_VALIDATE_ADVERTISER="$(grep VITE_N8N_WEBHOOK_VALIDATE_ADVERTISER .env | cut -d= -f2 | tr -d '"')" \
   -t campaign-creator-hub:latest .
 
 # 3. Atualizar a stack (Swarm vai detectar a imagem nova)
