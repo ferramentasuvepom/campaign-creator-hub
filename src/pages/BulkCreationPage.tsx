@@ -71,6 +71,7 @@ export default function BulkCreationPage() {
     const [showAdvDialog, setShowAdvDialog] = useState(false);
     const [advForm, setAdvForm] = useState({ business_manager_id: "", name: "", beneficiary: "", payor: "", verified_identity_id: "", payor_identity_id: "" });
     const [advModo, setAdvModo] = useState<"full" | "bm">("full");
+    const [advCheck, setAdvCheck] = useState<{ loading: boolean; ok?: boolean; msg?: string } | null>(null);
     const [templateName, setTemplateName] = useState("");
     const [templateDesc, setTemplateDesc] = useState("");
     const [appliedTemplateName, setAppliedTemplateName] = useState<string | null>(null);
@@ -217,6 +218,35 @@ export default function BulkCreationPage() {
         },
         onError: (e: any) => toast({ title: "Erro ao cadastrar anunciante", description: e.message, variant: "destructive" }),
     });
+
+    // Checa na Meta se o ID informado e uma entidade verificada (via webhook do n8n)
+    const verificarAnunciante = async () => {
+        const url = import.meta.env.VITE_N8N_WEBHOOK_VALIDATE_ADVERTISER;
+        if (!url) { setAdvCheck({ loading: false, ok: false, msg: "Webhook de validação não configurado no .env" }); return; }
+        setAdvCheck({ loading: true });
+        try {
+            const res = await fetch(url, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ business_manager_id: advForm.business_manager_id, identity_id: advForm.verified_identity_id.trim() }),
+            });
+            const data = await res.json();
+            setAdvCheck({ loading: false, ok: !!data?.ok, msg: data?.ok ? `${data.name} — verificado` : (data?.error || "Não verificado") });
+        } catch (e: any) {
+            setAdvCheck({ loading: false, ok: false, msg: `Falha ao consultar (${e?.message || "rede"})` });
+        }
+    };
+
+    const blocoCheckAnunciante = (
+        <div className="flex items-center gap-2 flex-wrap">
+            <Button type="button" variant="outline" size="sm" onClick={verificarAnunciante}
+                disabled={!advForm.business_manager_id || !advForm.verified_identity_id.trim() || !!advCheck?.loading}>
+                {advCheck?.loading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-1" />}Verificar na Meta
+            </Button>
+            {advCheck && !advCheck.loading && (
+                <span className={`text-xs ${advCheck.ok ? "text-green-600" : "text-amber-600"}`}>{advCheck.ok ? "✅ " : "⚠️ "}{advCheck.msg}</span>
+            )}
+        </div>
+    );
     const { data: templates } = useQuery({
         queryKey: ["bulk_templates"], queryFn: async () => {
             const { data, error } = await supabase.from("bulk_templates").select("*").order("created_at", { ascending: false });
@@ -957,7 +987,7 @@ export default function BulkCreationPage() {
                             if (v.startsWith("__bm__")) {
                                 const bmId = v.slice(6);
                                 const bm = (businessManagers || []).find((b) => String(b.id) === String(bmId));
-                                setAdvModo("bm");
+                                setAdvModo("bm"); setAdvCheck(null);
                                 setAdvForm({ business_manager_id: bmId, name: "", beneficiary: "", payor: "", verified_identity_id: String(bm?.business_manager_id || ""), payor_identity_id: "" });
                                 setShowAdvDialog(true);
                                 return;
@@ -970,7 +1000,7 @@ export default function BulkCreationPage() {
                                 {bmsDisponiveis.map((bm) => (<SelectItem key={`bm-${bm.id}`} value={`__bm__${bm.id}`}>➕ Usar a BM da conta — {bm.name}</SelectItem>))}
                             </SelectContent>
                         </Select>
-                        <Button type="button" variant="outline" size="icon" title="Cadastrar anunciante" onClick={() => { setAdvModo("full"); const bmId = bmsSelecionadas.size === 1 ? [...bmsSelecionadas][0] : ""; setAdvForm({ business_manager_id: bmId, name: "", beneficiary: "", payor: "", verified_identity_id: "", payor_identity_id: "" }); setShowAdvDialog(true); }}><Plus className="w-4 h-4" /></Button>
+                        <Button type="button" variant="outline" size="icon" title="Cadastrar anunciante" onClick={() => { setAdvModo("full"); setAdvCheck(null); const bmId = bmsSelecionadas.size === 1 ? [...bmsSelecionadas][0] : ""; setAdvForm({ business_manager_id: bmId, name: "", beneficiary: "", payor: "", verified_identity_id: "", payor_identity_id: "" }); setShowAdvDialog(true); }}><Plus className="w-4 h-4" /></Button>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">Beneficiário/pagador exibido na transparência. Resolve "O anunciante está ausente" em conta USD mirando só o Brasil.</p>
                 </div>
@@ -985,6 +1015,7 @@ export default function BulkCreationPage() {
                                 <div className="rounded-lg border bg-muted/30 p-3">
                                     <p className="text-sm">🏢 {(businessManagers || []).find((b) => String(b.id) === String(advForm.business_manager_id))?.name || "BM da conta"}</p>
                                     <p className="text-xs text-muted-foreground mt-1">A Meta usa o ID verificado deste portfólio como anunciante. Só falta o nome da empresa para exibirmos aqui.</p>
+                                    <div className="mt-2">{blocoCheckAnunciante}</div>
                                 </div>
                             )}
                             {advModo === "full" && (
@@ -1005,6 +1036,7 @@ export default function BulkCreationPage() {
                                 <Label>ID verificado da Meta *</Label>
                                 <Input value={advForm.verified_identity_id} onChange={(e) => setAdvForm({ ...advForm, verified_identity_id: e.target.value })} placeholder="Ex: 905356978426553" />
                                 <p className="text-xs text-muted-foreground mt-1">ID da entidade verificada (universal_beneficiary). Normalmente é o ID do negócio da conta — Configurações do negócio → Informações do negócio.</p>
+                                <div className="mt-2">{blocoCheckAnunciante}</div>
                             </div>
                             )}
                             <div><Label>Pagador (razão social)</Label><Input value={advForm.payor} onChange={(e) => setAdvForm({ ...advForm, payor: e.target.value })} placeholder="Vazio = usa o mesmo do anunciante" /></div>
