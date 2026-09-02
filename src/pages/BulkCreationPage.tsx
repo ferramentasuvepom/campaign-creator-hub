@@ -71,7 +71,8 @@ export default function BulkCreationPage() {
     const [showAdvDialog, setShowAdvDialog] = useState(false);
     const [advForm, setAdvForm] = useState({ business_manager_id: "", name: "", beneficiary: "", payor: "", verified_identity_id: "", payor_identity_id: "" });
     const [advModo, setAdvModo] = useState<"full" | "bm">("full");
-    const [advCheck, setAdvCheck] = useState<{ loading: boolean; ok?: boolean; msg?: string } | null>(null);
+    const [advCheck, setAdvCheck] = useState<{ loading: boolean; ok?: boolean; msg?: string; definitivo?: boolean } | null>(null);
+    const [advForcar, setAdvForcar] = useState(false);
     const [templateName, setTemplateName] = useState("");
     const [templateDesc, setTemplateDesc] = useState("");
     const [appliedTemplateName, setAppliedTemplateName] = useState<string | null>(null);
@@ -223,6 +224,7 @@ export default function BulkCreationPage() {
     const verificarAnunciante = async () => {
         const url = import.meta.env.VITE_N8N_WEBHOOK_VALIDATE_ADVERTISER;
         if (!url) { setAdvCheck({ loading: false, ok: false, msg: "Webhook de validação não configurado no .env" }); return; }
+        setAdvForcar(false);
         setAdvCheck({ loading: true });
         try {
             const res = await fetch(url, {
@@ -230,7 +232,15 @@ export default function BulkCreationPage() {
                 body: JSON.stringify({ business_manager_id: advForm.business_manager_id, identity_id: advForm.verified_identity_id.trim() }),
             });
             const data = await res.json();
-            setAdvCheck({ loading: false, ok: !!data?.ok, msg: data?.ok ? `${data.name} — verificado` : (data?.error || "Não verificado") });
+            const status = data?.status ?? data?.verification_status ?? null;
+            setAdvCheck({
+                loading: false,
+                ok: !!data?.ok,
+                msg: data?.ok ? `${data.name} — verificado` : (data?.error || "Não verificado"),
+                // Status veio da Meta e nao e "verified" => nao verificado de fato (bloqueia).
+                // Sem status (erro de acesso/ID) => inconclusivo (permite forcar).
+                definitivo: !!status && status !== "verified",
+            });
         } catch (e: any) {
             setAdvCheck({ loading: false, ok: false, msg: `Falha ao consultar (${e?.message || "rede"})` });
         }
@@ -243,7 +253,20 @@ export default function BulkCreationPage() {
                 {advCheck?.loading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-1" />}Verificar na Meta
             </Button>
             {advCheck && !advCheck.loading && (
-                <span className={`text-xs ${advCheck.ok ? "text-green-600" : "text-amber-600"}`}>{advCheck.ok ? "✅ " : "⚠️ "}{advCheck.msg}</span>
+                <span className={`text-xs ${advCheck.ok ? "text-green-600" : advCheck.definitivo ? "text-red-600" : "text-amber-600"}`}>
+                    {advCheck.ok ? "✅ " : advCheck.definitivo ? "⛔ " : "⚠️ "}{advCheck.msg}
+                </span>
+            )}
+            {!advCheck && (
+                <span className="text-xs text-muted-foreground">Verifique o ID antes de cadastrar.</span>
+            )}
+            {advCheck && !advCheck.loading && !advCheck.ok && !advCheck.definitivo && !advForcar && (
+                <Button type="button" variant="ghost" size="sm" className="text-xs" onClick={() => setAdvForcar(true)}>
+                    Cadastrar mesmo assim
+                </Button>
+            )}
+            {advForcar && (
+                <span className="text-xs text-amber-600">⚠️ Cadastro liberado sem confirmação da Meta.</span>
             )}
         </div>
     );
@@ -990,7 +1013,7 @@ export default function BulkCreationPage() {
                             if (v.startsWith("__bm__")) {
                                 const bmId = v.slice(6);
                                 const bm = (businessManagers || []).find((b) => String(b.id) === String(bmId));
-                                setAdvModo("bm"); setAdvCheck(null);
+                                setAdvModo("bm"); setAdvCheck(null); setAdvForcar(false);
                                 setAdvForm({ business_manager_id: bmId, name: "", beneficiary: "", payor: "", verified_identity_id: String(bm?.business_manager_id || ""), payor_identity_id: "" });
                                 setShowAdvDialog(true);
                                 return;
@@ -1014,7 +1037,7 @@ export default function BulkCreationPage() {
                                 {bmsDisponiveis.map((bm) => (<SelectItem key={`bm-${bm.id}`} value={`__bm__${bm.id}`}>➕ Usar a BM da conta — {bm.name}</SelectItem>))}
                             </SelectContent>
                         </Select>
-                        <Button type="button" variant="outline" size="icon" title="Cadastrar anunciante" onClick={() => { setAdvModo("full"); setAdvCheck(null); const bmId = bmsSelecionadas.size === 1 ? [...bmsSelecionadas][0] : ""; setAdvForm({ business_manager_id: bmId, name: "", beneficiary: "", payor: "", verified_identity_id: "", payor_identity_id: "" }); setShowAdvDialog(true); }}><Plus className="w-4 h-4" /></Button>
+                        <Button type="button" variant="outline" size="icon" title="Cadastrar anunciante" onClick={() => { setAdvModo("full"); setAdvCheck(null); setAdvForcar(false); const bmId = bmsSelecionadas.size === 1 ? [...bmsSelecionadas][0] : ""; setAdvForm({ business_manager_id: bmId, name: "", beneficiary: "", payor: "", verified_identity_id: "", payor_identity_id: "" }); setShowAdvDialog(true); }}><Plus className="w-4 h-4" /></Button>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">Beneficiário/pagador exibido na transparência. Resolve "O anunciante está ausente" em conta USD mirando só o Brasil.</p>
                 </div>
@@ -1036,7 +1059,7 @@ export default function BulkCreationPage() {
                             <div>
                                 <Label>Portfólio (BM) de origem *</Label>
                                 <p className="text-xs text-muted-foreground mb-1.5">Usado para validar o ID e agrupar na lista. O anunciante continua disponível para contas de outras BMs.</p>
-                                <Select value={advForm.business_manager_id} onValueChange={(v) => setAdvForm((prev) => ({ ...prev, business_manager_id: v }))}>
+                                <Select value={advForm.business_manager_id} onValueChange={(v) => { setAdvForm((prev) => ({ ...prev, business_manager_id: v })); setAdvCheck(null); setAdvForcar(false); }}>
                                     <SelectTrigger><SelectValue placeholder="Selecionar BM..." /></SelectTrigger>
                                     <SelectContent>{(businessManagers || []).map((bm) => (<SelectItem key={bm.id} value={bm.id}>{bm.name}</SelectItem>))}</SelectContent>
                                 </Select>
@@ -1049,7 +1072,7 @@ export default function BulkCreationPage() {
                             {advModo === "full" && (
                             <div>
                                 <Label>ID verificado da Meta *</Label>
-                                <Input value={advForm.verified_identity_id} onChange={(e) => setAdvForm({ ...advForm, verified_identity_id: e.target.value })} placeholder="Ex: 905356978426553" />
+                                <Input value={advForm.verified_identity_id} onChange={(e) => { setAdvForm({ ...advForm, verified_identity_id: e.target.value }); setAdvCheck(null); setAdvForcar(false); }} placeholder="Ex: 905356978426553" />
                                 <p className="text-xs text-muted-foreground mt-1">ID da entidade verificada (universal_beneficiary). Normalmente é o ID do negócio da conta — Configurações do negócio → Informações do negócio.</p>
                                 <div className="mt-2">{blocoCheckAnunciante}</div>
                             </div>
@@ -1065,7 +1088,7 @@ export default function BulkCreationPage() {
                         </div>
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setShowAdvDialog(false)}>Cancelar</Button>
-                            <Button onClick={() => createAdvertiserMutation.mutate()} disabled={!advForm.business_manager_id || !advForm.beneficiary.trim() || !advForm.verified_identity_id.trim() || createAdvertiserMutation.isPending}>
+                            <Button onClick={() => createAdvertiserMutation.mutate()} disabled={!advForm.business_manager_id || !advForm.beneficiary.trim() || !advForm.verified_identity_id.trim() || createAdvertiserMutation.isPending || !!advCheck?.definitivo || !(advCheck?.ok || advForcar)}>
                                 {createAdvertiserMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}Cadastrar
                             </Button>
                         </DialogFooter>
